@@ -25,11 +25,11 @@ export const PersonDetail = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchPerson(id);
+      const res = await fetchPerson();
       if (res.ok) {
         // Find person inside returned array
-        const personData = Array.isArray(res.data.response_data) 
-          ? res.data.response_data.find(p => p && (p._id === id || p.id === id)) 
+        const personData = Array.isArray(res.data.response_data)
+          ? res.data.response_data.find(p => p && (p.id === id || p._id === id))
           : res.data.response_data;
 
         if (personData) {
@@ -72,7 +72,7 @@ export const PersonDetail = () => {
     e.preventDefault();
     try {
       const payload = {
-        _id: id,
+        id,
         name,
         role,
         package_expiry: expiry ? `${expiry}T00:00:00+00:00` : null
@@ -158,7 +158,8 @@ export const PersonDetail = () => {
                 {person.name}
               </div>
               <div className="text-muted" style={{ fontSize: '12px', marginTop: '4px' }}>
-                Database reference: <span className="mono">{person._id}</span>
+                {person.person_code && <span className="badge badge-muted" style={{ marginRight: '6px' }}>{person.person_code}</span>}
+                Database reference: <span className="mono">{person.id || person._id}</span>
               </div>
             </div>
           </div>
@@ -167,18 +168,18 @@ export const PersonDetail = () => {
             <form onSubmit={handleSave}>
               <div className="form-group">
                 <label className="form-label">Full Name</label>
-                <input type="text" className="form-control" value={name} onChange={e => setName(e.target.value)} required />
+                <input type="text" className="form-input" value={name} onChange={e => setName(e.target.value)} required />
               </div>
               <div className="form-group">
                 <label className="form-label">Role</label>
-                <select className="form-control" value={role} onChange={e => setRole(e.target.value)}>
+                <select className="form-input" value={role} onChange={e => setRole(e.target.value)}>
                   <option value="member">Member</option>
                   <option value="staff">Staff</option>
                 </select>
               </div>
               <div className="form-group">
                 <label className="form-label">Package Expiry Date</label>
-                <input type="date" className="form-control mono" value={expiry} onChange={e => setExpiry(e.target.value)} />
+                <input type="date" className="form-input mono" value={expiry} onChange={e => setExpiry(e.target.value)} />
               </div>
               <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
                 <button type="button" className="btn btn-sm" onClick={() => setEditMode(false)}>Cancel</button>
@@ -233,7 +234,7 @@ export const PersonDetail = () => {
             />
           </div>
           <div className="text-muted" style={{ fontSize: '11.5px', marginTop: '12px', textAlign: 'center', maxWidth: '240px', lineHeight: 1.4 }}>
-            This photo is cataloged on AWS Rekognition to check security entries. Click the photo to enlarge.
+            This photo is cataloged on Server Rekognition to check security entries. Click the photo to enlarge.
           </div>
         </div>
       </div>
@@ -252,7 +253,7 @@ export const PersonDetail = () => {
           </div>
           <div className="alert-grid">
             {accompaniedUnknowns.map((a, idx) => (
-              <div key={a._id || idx} className="alert-card hidden" style={{ cursor: 'pointer' }} onClick={() => openLightbox([a.image_path, a.crop_path].filter(Boolean), 0)}>
+              <div key={a.id || a._id || idx} className="alert-card hidden" style={{ cursor: 'pointer' }} onClick={() => openLightbox([a.image_path, a.crop_path].filter(Boolean), 0)}>
                 <div className="alert-card-body">
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
                     <span className="badge badge-err">Unknown Entry</span>

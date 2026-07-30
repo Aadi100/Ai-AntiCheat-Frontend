@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import * as api from '../utils/api';
 
@@ -167,7 +168,7 @@ export const Dataset = () => {
         const p = perRes.data?.response_data || [];
         setUnknownPersons(p);
         // Only set default once — use functional updater to avoid stale closure
-        setExistingPersonId(prev => prev || p[0]?._id || '');
+        setExistingPersonId(prev => prev || p[0]?.id || p[0]?._id || '');
       }
     } catch (e) {
       setUnknownError(`Network error: ${e.message}`);
@@ -258,7 +259,7 @@ export const Dataset = () => {
         if (!r.ok) { alert(r.data?.response_message || 'Failed to enroll.'); return; }
       } else {
         if (!existingPersonId) return;
-        const person = unknownPersons.find(p => p._id === existingPersonId);
+        const person = unknownPersons.find(p => (p.id || p._id) === existingPersonId);
         if (!person) return;
         const r = await api.updatePerson({ ...person, photo_path: trainTarget.photo_path });
         success = r.ok;
@@ -366,7 +367,7 @@ export const Dataset = () => {
                 <label className="form-label" style={{ fontSize: '12px' }}>Select Person</label>
                 {unknownPersons.length > 0
                   ? <select className="form-select" value={existingPersonId} onChange={e => setExistingPersonId(e.target.value)}>
-                      {unknownPersons.map(p => <option key={p._id} value={p._id}>{p.name} ({p.role})</option>)}
+                      {unknownPersons.map(p => <option key={p.id || p._id} value={p.id || p._id}>{p.name} ({p.role})</option>)}
                     </select>
                   : <p className="text-muted" style={{ fontSize: '12px' }}>No registered persons found.</p>}
               </div>
@@ -386,13 +387,10 @@ export const Dataset = () => {
   ══════════════════════════════════════════════════ */
   return (
     <div>
-      {/* Page header */}
-      <div style={{ marginBottom: '22px' }}>
-        <h2 style={{ fontWeight: '800', fontSize: '18px', color: 'var(--fg-strong)' }}>Dataset Management</h2>
-        <p className="text-muted" style={{ marginTop: '2px', fontSize: '13px' }}>
-          Manage enrolled faces, server collections, unknown captures, and duplicate reviews.
-        </p>
-      </div>
+      <PageHeader
+        title="Dataset Management"
+        description="Manage enrolled faces, server collections, unknown captures, and duplicate reviews."
+      />
 
       {/* Main tabs */}
       <div style={{ display: 'flex', gap: '10px', marginBottom: '24px' }}>
@@ -522,21 +520,36 @@ export const Dataset = () => {
               {knownSubTab === 'duplicates' && (
                 duplicates.length > 0 ? (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                    {duplicates.map((pair, i) => (
-                      <div key={pair.id || i} className="panel" style={{ padding: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-                          <div style={{ display: 'flex', gap: '4px' }}>
-                            {pair.p1_img && <img src={pair.p1_img} style={{ width: '52px', height: '52px', borderRadius: '6px', objectFit: 'cover' }} alt="" />}
-                            {pair.p2_img && <img src={pair.p2_img} style={{ width: '52px', height: '52px', borderRadius: '6px', objectFit: 'cover' }} alt="" />}
-                          </div>
+                    {duplicates.map((review, i) => {
+                      const reviewId = review.id || review._id;
+                      return (
+                        <div key={reviewId || i} className="panel" style={{ padding: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
                           <div>
-                            <div style={{ fontWeight: '700', fontSize: '13.5px' }}>{pair.p1_name} · {pair.p2_name}</div>
-                            {pair.similarity && <div style={{ fontSize: '11.5px', color: 'var(--err)', marginTop: '2px', fontWeight: '600' }}>{pair.similarity}% similarity</div>}
+                            <div style={{ fontWeight: '700', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                              {review.name}
+                              {review.duplicate_review_code && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{review.duplicate_review_code}</span>}
+                              {review.person_type && <span className="badge badge-blue" style={{ fontSize: '9px', textTransform: 'capitalize' }}>{review.person_type}</span>}
+                            </div>
+                            <div style={{ fontSize: '11.5px', color: 'var(--fg2)', marginTop: '4px' }}>
+                              New enrollment <span className="mono">{review.enrollment_id}</span> matches existing <span className="mono">{review.existing_enrollment_id}</span>
+                            </div>
+                            {review.folder && (
+                              <div style={{ fontSize: '10.5px', color: 'var(--fg3)', marginTop: '2px' }}>Folder: {review.folder}</div>
+                            )}
                           </div>
+                          <button
+                            className="btn btn-sm"
+                            onClick={async () => {
+                              const res = await api.resolveDuplicateReview(reviewId, 'ignored');
+                              if (res.ok) setDuplicates(prev => prev.filter((_, j) => j !== i));
+                              else alert(res.data?.response_message || 'Failed to resolve duplicate review.');
+                            }}
+                          >
+                            Ignore
+                          </button>
                         </div>
-                        <button className="btn btn-sm" onClick={() => setDuplicates(prev => prev.filter((_, j) => j !== i))}>Ignore</button>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="empty-state">

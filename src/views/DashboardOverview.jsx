@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { fetchDashboard } from '../utils/api';
+import { alertMeta } from '../utils/alertTypes';
 import { SecureImage } from '../components/SecureImage';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -19,12 +21,97 @@ ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 export const DashboardOverview = () => {
   const {
     openCardModal,
-    openLightbox
+    openLightbox,
+    runBackgroundCameraDiagnostic
   } = useApp();
 
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Quick access key: Shift+P runs a camera scan → stream → capture & recognize
+  // in the background (no navigation) and reports the result via toast.
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.shiftKey && e.key.toUpperCase() === 'P') {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
+        e.preventDefault();
+        runBackgroundCameraDiagnostic();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [runBackgroundCameraDiagnostic]);
+
+  // Camera preview toggle — discovers a camera directly via the browser
+  // (no backend USB-scan call) and opens a live preview of it.
+  const [previewOn, setPreviewOn] = useState(false);
+  const [previewError, setPreviewError] = useState(null);
+  const [previewLabel, setPreviewLabel] = useState(null);
+  const previewVideoRef = useRef(null);
+  const previewStreamRef = useRef(null);
+
+  useEffect(() => {
+    if (!previewOn) {
+      if (previewStreamRef.current) {
+        previewStreamRef.current.getTracks().forEach(track => track.stop());
+        previewStreamRef.current = null;
+      }
+      setPreviewLabel(null);
+      return;
+    }
+
+    let cancelled = false;
+    setPreviewError(null);
+
+    const openTopCamera = async () => {
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        setPreviewError('This browser does not support camera enumeration.');
+        setPreviewOn(false);
+        return;
+      }
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let cams = devices.filter(d => d.kind === 'videoinput');
+      if (cancelled) return;
+      if (cams.length === 0) {
+        setPreviewError('No cameras were detected on this device.');
+        setPreviewOn(false);
+        return;
+      }
+
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: cams[0].deviceId ? { deviceId: { exact: cams[0].deviceId } } : true
+        });
+        if (cancelled) {
+          stream.getTracks().forEach(track => track.stop());
+          return;
+        }
+        previewStreamRef.current = stream;
+        if (previewVideoRef.current) previewVideoRef.current.srcObject = stream;
+
+        devices = await navigator.mediaDevices.enumerateDevices();
+        cams = devices.filter(d => d.kind === 'videoinput');
+        setPreviewLabel(cams[0]?.label || 'Default camera');
+      } catch (err) {
+        if (!cancelled) {
+          setPreviewError(`Could not access webcam: ${err.message}`);
+          setPreviewOn(false);
+        }
+      }
+    };
+
+    openTopCamera();
+
+    return () => {
+      cancelled = true;
+      if (previewStreamRef.current) {
+        previewStreamRef.current.getTracks().forEach(track => track.stop());
+        previewStreamRef.current = null;
+      }
+    };
+  }, [previewOn]);
 
   const getDashboardData = async () => {
     try {
@@ -39,7 +126,7 @@ export const DashboardOverview = () => {
         }
       } else {
         if (res.status === 404) {
-          setError('Endpoint "/api/v1/admin/dashboard" not found (404). Please verify your Flask routes.');
+          setError('Endpoint "/api/v1/dashboard" not found (404). Please verify your Flask routes.');
         } else if (res.status === 401) {
           setError('Unauthorized (401). Please check your credentials or log in again.');
         } else if (res.status === 0) {
@@ -83,7 +170,7 @@ export const DashboardOverview = () => {
 
   // Safe destructuring of backend response data with fallback structures
   const stats = dashboardData?.stats || { total: 0, known: 0, unknown: 0, alerts: 0 };
-  const alertBreakdown = dashboardData?.alert_breakdown || { unknown_entry: 0, face_hidden: 0 };
+  const alertBreakdown = dashboardData?.alert_breakdown || { unknown_entry: 0, face_hidden: 0, expired_membership: 0 };
   const people = dashboardData?.people || { member: 0, staff: 0 };
   const peopleTotal = (people.member || 0) + (people.staff || 0);
   const analytics = dashboardData?.analytics || { daily: [], total_known: 0, total_unknown: 0 };
@@ -143,6 +230,35 @@ export const DashboardOverview = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Dashboard Overview"
+        description="Real-time surveillance summary across every connected camera zone."
+        badge="⌘ Shift+P — quick camera test"
+      >
+        <div className={`mini-toggle ${previewOn ? 'on' : ''}`} onClick={() => setPreviewOn(prev => !prev)}>
+          <span className="mini-toggle-track"><span className="mini-toggle-thumb"></span></span>
+          Camera Preview
+        </div>
+      </PageHeader>
+
+      {previewOn && (
+        <div className="camera-preview-panel">
+          <div className="camera-preview-head">
+            <div className="camera-preview-title">
+              <Icon name="film" size={15} />
+              Live Preview
+              {previewLabel && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{previewLabel}</span>}
+            </div>
+            <button className="btn btn-sm" onClick={() => setPreviewOn(false)}>Close</button>
+          </div>
+          {previewError ? (
+            <div className="banner-err" style={{ margin: 0 }}>⚠️ {previewError}</div>
+          ) : (
+            <video ref={previewVideoRef} className="camera-preview-video" autoPlay playsInline muted />
+          )}
+        </div>
+      )}
+
       {/* Statistics Grid */}
       <div className="stat-grid">
         <div className="stat-card blue">
@@ -161,7 +277,7 @@ export const DashboardOverview = () => {
           <div className="stat-label">Total Alerts</div>
           <div className="stat-val">{stats.alerts}</div>
           <div className="text-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
-            {alertBreakdown.unknown_entry || 0} unknown &middot; {alertBreakdown.face_hidden || 0} hidden
+            {alertBreakdown.unknown_entry || 0} unknown &middot; {alertBreakdown.face_hidden || 0} hidden &middot; {alertBreakdown.expired_membership || 0} expired
           </div>
         </div>
         <div className="stat-card ok">
@@ -190,6 +306,7 @@ export const DashboardOverview = () => {
         <>
           <div className="alert-grid">
             {violations.slice(0, 4).map((a, idx) => {
+              const meta = alertMeta(a.type);
               const cardData = {
                 type: a.type,
                 crop: a.crop_path,
@@ -203,18 +320,14 @@ export const DashboardOverview = () => {
               return (
                 <div
                   key={idx}
-                  className={`alert-card ${a.type === 'face_hidden' ? 'hidden' : ''}`}
+                  className={`alert-card ${meta.cardClass}`}
                   style={{ cursor: 'pointer' }}
                   onClick={() => openCardModal(cardData)}
                 >
                   <div className="alert-card-body">
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '8px' }}>
                       <div>
-                        {a.type === 'face_hidden' ? (
-                          <span className="badge badge-warn">Face Hidden</span>
-                        ) : (
-                          <span className="badge badge-err">Unknown Entry</span>
-                        )}
+                        <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>
                       </div>
                       <span className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
                         {a.triggered_at}

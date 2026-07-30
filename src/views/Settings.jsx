@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import * as apiSvc from '../utils/api';
 
 export const Settings = () => {
@@ -48,14 +49,12 @@ export const Settings = () => {
   
   const [serverRegion, setServerRegion] = useState('');
   const [serverCollectionId, setServerCollectionId] = useState('');
-  const [unknownMatchUseServer, setUnknownMatchUseServer] = useState(true);
   const [unknownServerCollectionId, setUnknownServerCollectionId] = useState('');
   const [serverAccessKey, setServerAccessKey] = useState('');
   const [serverSecretKey, setServerSecretKey] = useState('');
   const [trainUnknownEverySighting, setTrainUnknownEverySighting] = useState(true);
-  
+
   const [apiKey, setApiKey] = useState('');
-  const [externalApiKey, setExternalApiKey] = useState('');
 
   // Matching configuration
   const [selectedMatchModel, setSelectedMatchModel] = useState('Facenet512');
@@ -102,14 +101,12 @@ export const Settings = () => {
 
     setServerRegion(s.server_region || '');
     setServerCollectionId(s.server_collection_id || '');
-    setUnknownMatchUseServer(s.unknown_match_use_server ?? true);
     setUnknownServerCollectionId(s.unknown_server_collection_id || '');
     setTrainUnknownEverySighting(s.train_unknown_every_sighting ?? true);
     setServerAccessKey(s.server_access_key || '');
     setServerSecretKey(s.server_secret_key || '');
 
     setApiKey(s.api_key || '');
-    setExternalApiKey(s.external_api_key || '');
 
     const currentModel = s.embedding_model || 'Facenet512';
     setSelectedMatchModel(prev => prev || currentModel);
@@ -148,7 +145,6 @@ export const Settings = () => {
         camera_dataset_dir: cameraDatasetDir,
         camera_area_enabled: cameraAreaEnabled,
         use_multiple_images: useMultipleImages,
-        external_api_key: externalApiKey,
         detector,
         embedding_model: embeddingModel,
         robust_emb: robustEmb
@@ -180,19 +176,18 @@ export const Settings = () => {
         server_secret_key: serverSecretKey,
         server_region: serverRegion,
         server_collection_id: serverCollectionId,
-        unknown_match_use_server: unknownMatchUseServer,
         unknown_server_collection_id: unknownServerCollectionId,
         train_unknown_every_sighting: trainUnknownEverySighting
       };
       const res = await apiSvc.saveSettings(payload);
       if (res.ok) {
-        setSaveStatus('✓ AWS Cloud settings saved successfully.');
-        setConsoleLogs(prev => [...prev, `[Settings] Updated AWS Rekognition collection configs.`]);
+        setSaveStatus('✓ Server Cloud settings saved successfully.');
+        setConsoleLogs(prev => [...prev, `[Settings] Updated Server Rekognition collection configs.`]);
         const updated = res.data.response_data || {};
         setSettings(updated);
         syncFormFields(updated);
       } else {
-        setSaveStatus(`✗ ${res.data?.response_message || 'Failed to save AWS settings.'}`);
+        setSaveStatus(`✗ ${res.data?.response_message || 'Failed to save Server settings.'}`);
       }
     } catch (err) {
       setSaveStatus(`✗ Connection error: ${err.message}`);
@@ -218,27 +213,6 @@ export const Settings = () => {
         await loadSettings();
       } else {
         setSaveStatus(`✗ ${res.data?.response_message || 'Failed to save parameters.'}`);
-      }
-    } catch (err) {
-      setSaveStatus(`✗ Connection error: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleRegenerateKey = async () => {
-    setSaving(true);
-    setSaveStatus('');
-    try {
-      const res = await apiSvc.regenerateApiKey();
-      if (res.ok) {
-        const newKey = res.data.response_data?.external_api_key || '';
-        setExternalApiKey(newKey);
-        setSaveStatus(`✓ Regenerated external X-API-Key: ${newKey}`);
-        setConsoleLogs(prev => [...prev, `[Settings] Regenerated external integration API key.`]);
-        await loadSettings();
-      } else {
-        setSaveStatus(`✗ Failed to regenerate key: ${res.data?.response_message}`);
       }
     } catch (err) {
       setSaveStatus(`✗ Connection error: ${err.message}`);
@@ -344,6 +318,11 @@ export const Settings = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Settings"
+        description="Configure recognition models, cloud collections, matching criteria, and system defaults."
+      />
+
       {saveStatus && (
         <div style={{
           padding: '12px 18px',
@@ -358,7 +337,7 @@ export const Settings = () => {
           gap: '8px',
           boxShadow: 'var(--shadow-sm)'
         }}>
-          <Icon name={saveStatus.startsWith('✓') ? 'check' : 'alert-triangle'} size={15} />
+          <Icon name={saveStatus.startsWith('✓') ? 'check-circle' : 'alert-triangle'} size={15} />
           {saveStatus}
         </div>
       )}
@@ -366,7 +345,7 @@ export const Settings = () => {
       {/* Tabs Menu */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', borderBottom: '1px solid var(--border-soft)', paddingBottom: '14px', marginBottom: '24px' }}>
         {renderTabChip('general', '⚙️ General & Paths')}
-        {renderTabChip('aws', '☁️ AWS Cloud Server')}
+        {renderTabChip('aws', '☁️ Cloud Server')}
         {renderTabChip('matching', '🎯 Matching Criteria')}
         {renderTabChip('danger', '⚠️ Danger Zone')}
       </div>
@@ -388,23 +367,6 @@ export const Settings = () => {
                 onChange={e => setApiKey(e.target.value)}
                 placeholder="Admin API key"
               />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>External Integration X-API-Key</label>
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <input
-                  type="text"
-                  className="form-input mono"
-                  style={{ ...inputStyle, flex: 1 }}
-                  value={externalApiKey}
-                  onChange={e => setExternalApiKey(e.target.value)}
-                  placeholder="fm-ak-..."
-                />
-                <button type="button" className="btn btn-primary" style={{ padding: '0 16px', borderRadius: '8px', fontSize: '12.5px' }} onClick={handleRegenerateKey} disabled={saving}>
-                  Regenerate
-                </button>
-              </div>
             </div>
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
@@ -518,11 +480,11 @@ export const Settings = () => {
       {activeTab === 'aws' && (
         <div style={panelCardStyle}>
           <div style={{ fontWeight: '800', fontSize: '15px', marginBottom: '18px', borderBottom: '1px solid var(--border-soft)', paddingBottom: '10px' }}>
-            AWS Rekognition Integration Settings
+            Server Rekognition Integration Settings
           </div>
           <form onSubmit={handleSaveAws}>
             <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>AWS Access Key ID</label>
+              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Server Access Key ID</label>
               <input
                 type="text"
                 className="form-input mono"
@@ -534,7 +496,7 @@ export const Settings = () => {
             </div>
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>AWS Secret Access Key</label>
+              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Server Secret Access Key</label>
               <input
                 type="password"
                 className="form-input mono"
@@ -546,7 +508,7 @@ export const Settings = () => {
             </div>
 
             <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>AWS Region</label>
+              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Server Region</label>
               <input
                 type="text"
                 className="form-input mono"
@@ -581,20 +543,6 @@ export const Settings = () => {
               />
             </div>
 
-            {/* Toggle Card 4 */}
-            <div style={toggleContainerStyle}>
-              <div>
-                <div style={{ fontWeight: '600', fontSize: '13px' }}>Verify Unknowns on Cloud</div>
-                <div style={{ fontSize: '11px', color: 'var(--fg3)', marginTop: '2px' }}>Verify unknown entry faces against remote AWS database collection</div>
-              </div>
-              <input
-                type="checkbox"
-                checked={unknownMatchUseServer}
-                onChange={e => setUnknownMatchUseServer(e.target.checked)}
-                style={{ width: '20px', height: '20px', cursor: 'pointer', accentColor: 'var(--accent)' }}
-              />
-            </div>
-
             {/* Toggle Card 5 */}
             <div style={{ ...toggleContainerStyle, marginBottom: '24px' }}>
               <div>
@@ -610,7 +558,7 @@ export const Settings = () => {
             </div>
 
             <button type="submit" className="btn btn-primary" style={{ padding: '12px 24px', borderRadius: '8px', fontSize: '13px', fontWeight: 'bold' }} disabled={saving}>
-              {saving ? 'Saving Configurations...' : 'Save AWS Settings'}
+              {saving ? 'Saving Configurations...' : 'Save Server Settings'}
             </button>
           </form>
         </div>

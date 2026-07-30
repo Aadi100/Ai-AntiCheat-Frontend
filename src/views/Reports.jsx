@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { Icon } from '../components/Icon';
-import { fetchReport } from '../utils/api';
+import { PageHeader } from '../components/PageHeader';
+import { fetchReport, API_BASE } from '../utils/api';
 
 export const Reports = () => {
   const [range, setRange] = useState('30d');
@@ -65,7 +66,7 @@ export const Reports = () => {
       const q = new URLSearchParams(params).toString();
       const token = localStorage.getItem('token') || '';
       
-      const response = await fetch(`/api/v1/admin/reports/pdf?${q}`, {
+      const response = await fetch(`${API_BASE}/reports/pdf?${q}`, {
         headers: {
           'Authorization': `Bearer ${token}`
         }
@@ -94,7 +95,7 @@ export const Reports = () => {
 
   // Safe destructuring of report data
   const detections = reportData?.detections || { total_detections: 0, total_faces: 0, known_count: 0, unknown_count: 0, daily: [] };
-  const alerts = reportData?.alerts || { total: 0, by_type: { unknown_entry: 0, face_hidden: 0 } };
+  const alerts = reportData?.alerts || { total: 0, by_type: { unknown_entry: 0, face_hidden: 0, expired_membership: 0 } };
   const persons = reportData?.persons || { total: 0, directory: [], expiring_soon: [] };
   const serverUsage = reportData?.server_usage || {
     range: { known_indexed: 0, known_searched: 0, unknown_indexed: 0, unknown_searched: 0, known_total: 0, unknown_total: 0, grand_total: 0 },
@@ -112,10 +113,15 @@ export const Reports = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Reports"
+        description="Generate exportable security summaries across any date range."
+      />
+
       <div className="panel" style={{ display: 'flex', gap: '14px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '18px' }}>
         <div style={{ flex: 1, minWidth: '150px' }}>
           <label className="form-label">Predefined Ranges</label>
-          <select className="form-control" value={range} onChange={(e) => setRange(e.target.value)}>
+          <select className="form-input" value={range} onChange={(e) => setRange(e.target.value)}>
             <option value="7d">Last 7 Days</option>
             <option value="30d">Last 30 Days</option>
             <option value="90d">Last 90 Days</option>
@@ -128,11 +134,11 @@ export const Reports = () => {
           <>
             <div style={{ width: '130px' }}>
               <label className="form-label">Start Date</label>
-              <input type="date" className="form-control" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
+              <input type="date" className="form-input" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </div>
             <div style={{ width: '130px' }}>
               <label className="form-label">End Date</label>
-              <input type="date" className="form-control" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
+              <input type="date" className="form-input" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </div>
           </>
         )}
@@ -147,7 +153,7 @@ export const Reports = () => {
             {pdfLoading ? (
               <div className="spinner" style={{ width: '14px', height: '14px' }}></div>
             ) : (
-              <Icon name="list" size={15} />
+              <Icon name="download" size={15} />
             )}
             {pdfLoading ? 'Generating PDF...' : 'Download PDF'}
           </button>
@@ -231,6 +237,11 @@ export const Reports = () => {
                     <td>{alerts.by_type.face_hidden}</td>
                     <td>{Math.round((alerts.by_type.face_hidden / alerts.total) * 100 || 0)}%</td>
                   </tr>
+                  <tr>
+                    <td>⏳ Expired Membership</td>
+                    <td>{alerts.by_type.expired_membership || 0}</td>
+                    <td>{Math.round(((alerts.by_type.expired_membership || 0) / alerts.total) * 100 || 0)}%</td>
+                  </tr>
                   <tr style={{ background: 'var(--bg2)' }}>
                     <td><strong>Total</strong></td>
                     <td><strong>{alerts.total}</strong></td>
@@ -313,7 +324,7 @@ export const Reports = () => {
           )}
 
           {/* Section 4: Server usage */}
-          <div className="section-title">4. AWS Usage & Metered Counters</div>
+          <div className="section-title">4. Server Usage & Metered Counters</div>
           <div className="table-wrap">
             <table>
               <thead>

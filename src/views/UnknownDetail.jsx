@@ -174,7 +174,7 @@ export const UnknownDetail = () => {
                   type="text"
                   required
                   placeholder="e.g. John Doe"
-                  className="form-control"
+                  className="form-input"
                   value={registerName}
                   onChange={e => setRegisterName(e.target.value)}
                 />
@@ -182,7 +182,7 @@ export const UnknownDetail = () => {
 
               <div className="form-group">
                 <label className="form-label">Database Role</label>
-                <select className="form-control" value={registerRole} onChange={e => setRegisterRole(e.target.value)}>
+                <select className="form-input" value={registerRole} onChange={e => setRegisterRole(e.target.value)}>
                   <option value="member">Member</option>
                   <option value="staff">Staff</option>
                 </select>

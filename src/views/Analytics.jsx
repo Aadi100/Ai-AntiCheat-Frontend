@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PageHeader } from '../components/PageHeader';
 import { fetchAnalytics } from '../utils/api';
 import { Bar, Line } from 'react-chartjs-2';
 import {
@@ -189,6 +190,11 @@ export const Analytics = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Analytics"
+        description="Long-range trends across known vs. unknown detections and peak activity hours."
+      />
+
       {/* Stats summary row */}
       <div className="stat-grid" style={{ marginBottom: '20px' }}>
         <div className="stat-card ok">

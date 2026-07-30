@@ -3,6 +3,7 @@ import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Icon } from './Icon';
 import { SecureImage } from './SecureImage';
+import { ALERT_TYPE_META, alertMeta } from '../utils/alertTypes';
 
 export const AppLayout = ({ children }) => {
   const {
@@ -144,7 +145,7 @@ export const AppLayout = ({ children }) => {
             className="nav-link" 
             style={{ width: '100%', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer' }}
           >
-            <span className="icon">⏱</span>
+            <span className="icon"><Icon name="log-out" size={16} /></span>
             <span>Sign Out</span>
           </button>
         </nav>
@@ -212,36 +213,49 @@ export const AppLayout = ({ children }) => {
 
       {/* Toast Stack */}
       <div className="toast-stack">
-        {toasts.map((t) => (
-          <div
-            key={t.id}
-            className={`toast ${t.type === 'face_hidden' ? 'toast-warn' : ''}`}
-            onClick={() => {
-              removeToast(t.id);
-              navigate('/alerts');
-            }}
-          >
-            <span className="toast-icon">
-              <Icon name={t.type === 'face_hidden' ? 'help-circle' : 'alert-triangle'} size={18} />
-            </span>
-            <span className="toast-body">
-              <div className="toast-title">
-                {t.type === 'face_hidden' ? 'Face Hidden detected' : 'Unknown Entry detected'}
-              </div>
-              <div className="toast-time">{t.triggered_at}</div>
-            </span>
-            <button
-              className="toast-close"
-              aria-label="Dismiss"
-              onClick={(e) => {
-                e.stopPropagation();
+        {toasts.map((t) => {
+          const isAlert = t.type in ALERT_TYPE_META;
+          const alertIcon = { unknown_entry: 'alert-triangle', face_hidden: 'help-circle', expired_membership: 'lock' };
+          const icon = isAlert
+            ? (alertIcon[t.type] || 'alert-triangle')
+            : (t.type === 'success' ? 'check-circle' : 'alert-triangle');
+          const title = isAlert
+            ? `${alertMeta(t.type).label} detected`
+            : (t.title || 'Notification');
+          const subtitle = isAlert ? t.triggered_at : t.message;
+          const toastVariant = isAlert
+            ? (t.type === 'face_hidden' ? 'toast-warn' : t.type === 'expired_membership' ? 'toast-info' : '')
+            : (t.type === 'error' ? 'toast-warn' : '');
+
+          return (
+            <div
+              key={t.id}
+              className={`toast ${toastVariant}`}
+              onClick={() => {
                 removeToast(t.id);
+                if (isAlert) navigate('/alerts');
               }}
             >
-              &times;
-            </button>
-          </div>
-        ))}
+              <span className="toast-icon">
+                <Icon name={icon} size={18} />
+              </span>
+              <span className="toast-body">
+                <div className="toast-title">{title}</div>
+                <div className="toast-time">{subtitle}</div>
+              </span>
+              <button
+                className="toast-close"
+                aria-label="Dismiss"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  removeToast(t.id);
+                }}
+              >
+                &times;
+              </button>
+            </div>
+          );
+        })}
       </div>
 
 
@@ -263,11 +277,7 @@ export const AppLayout = ({ children }) => {
           <div className="card-modal-box">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '14px' }}>
               <div>
-                {cardModal.data.type === 'face_hidden' ? (
-                  <span className="badge badge-warn">Face Hidden</span>
-                ) : (
-                  <span className="badge badge-err">Unknown Entry</span>
-                )}
+                <span className={`badge ${alertMeta(cardModal.data.type).badgeClass}`}>{alertMeta(cardModal.data.type).label}</span>
               </div>
               <span className="mono js-time" style={{ color: '#9a9db3', fontSize: '12px' }}>
                 {cardModal.data.time || formatEpoch(cardModal.data.time_epoch)}

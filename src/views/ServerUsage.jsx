@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { PageHeader } from '../components/PageHeader';
 import { fetchServerUsage } from '../utils/api';
 import { Bar } from 'react-chartjs-2';
 import {
@@ -138,18 +139,14 @@ export const ServerUsage = () => {
 
   return (
     <div>
-      <div className="panel" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px', flexWrap: 'wrap', gap: '10px' }}>
-        <div>
-          <p className="text-muted" style={{ margin: 0 }}>
-            API usage breakdown on AWS Rekognition. Switch ranges to observe monthly trends.
-          </p>
-        </div>
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button className={`btn btn-sm ${days === 7 ? 'btn-primary' : ''}`} onClick={() => setDays(7)}>7 Days</button>
-          <button className={`btn btn-sm ${days === 30 ? 'btn-primary' : ''}`} onClick={() => setDays(30)}>30 Days</button>
-          <button className={`btn btn-sm ${days === 90 ? 'btn-primary' : ''}`} onClick={() => setDays(90)}>90 Days</button>
-        </div>
-      </div>
+      <PageHeader
+        title="Server Usage"
+        description="API usage breakdown on Server Rekognition. Switch ranges to observe monthly trends."
+      >
+        <button className={`btn btn-sm ${days === 7 ? 'btn-primary' : ''}`} onClick={() => setDays(7)}>7 Days</button>
+        <button className={`btn btn-sm ${days === 30 ? 'btn-primary' : ''}`} onClick={() => setDays(30)}>30 Days</button>
+        <button className={`btn btn-sm ${days === 90 ? 'btn-primary' : ''}`} onClick={() => setDays(90)}>90 Days</button>
+      </PageHeader>
 
       <div className="section-title">Lifetime Totals</div>
       <div className="stat-grid">
@@ -184,7 +181,7 @@ export const ServerUsage = () => {
             </div>
           ) : (
             <div className="empty-state" style={{ border: 'none', padding: '32px' }}>
-              No AWS usage recorded in this period.
+              No Server usage recorded in this period.
             </div>
           )}
         </div>

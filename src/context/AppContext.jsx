@@ -1,5 +1,8 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import * as mock from '../utils/mockData';
+import * as apiSvc from '../utils/api';
+
+export const QUICK_TEST_CAMERA_ID = '6a66fc33f08b0000ceda82f8';
 
 const AppContext = createContext();
 
@@ -23,7 +26,7 @@ export const AppProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await fetch('/api/v1/admin/login', {
+      const response = await fetch(`${apiSvc.API_BASE}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -33,10 +36,11 @@ export const AppProvider = ({ children }) => {
 
       const data = await response.json();
       if (response.ok && data.response_code === 200) {
-        const retrievedToken = data.response_data?.token || data.response_data || '';
-        if (retrievedToken) {
-          localStorage.setItem('token', retrievedToken);
-          setToken(retrievedToken);
+        const accessToken = data.response_data?.access_token || '';
+        const refreshToken = data.response_data?.refresh_token || '';
+        if (accessToken) {
+          apiSvc.setTokens({ access_token: accessToken, refresh_token: refreshToken });
+          setToken(accessToken);
           return { success: true };
         }
       }
@@ -53,7 +57,10 @@ export const AppProvider = ({ children }) => {
   };
 
   const logout = () => {
-    localStorage.removeItem('token');
+    // Clear local session immediately; revoke the token server-side best-effort
+    // in the background so the UI doesn't wait on the network to sign out.
+    apiSvc.authLogout().catch(() => {});
+    apiSvc.clearTokens();
     setToken('');
   };
 
@@ -88,7 +95,6 @@ export const AppProvider = ({ children }) => {
   const [billingSummary, setBillingSummary] = useState(mock.mockBillingSummary);
 
   const [settings, setSettings] = useState({
-    external_api_key: 'fm-ak-889812988102a9b3c4f7',
     auto_run_detection: true,
     multi_camera_stream: true,
     recognition_model: 'ArcFace',
@@ -107,6 +113,119 @@ export const AppProvider = ({ children }) => {
 
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
+  // ─── Background Quick Camera Test (Shift+P) ────────────────────────────────
+  // Discovers a camera directly via the browser (no backend USB-scan call),
+  // opens it off-screen, grabs a few frames, and posts them for recognition —
+  // all without navigating away. The result is reported via toast.
+  const quickTestRunningRef = useRef(false);
+
+  const runBackgroundCameraDiagnostic = async () => {
+    if (quickTestRunningRef.current) {
+      addToast({ type: 'info', title: 'Quick Camera Test', message: 'A test is already running in the background.' });
+      return;
+    }
+    quickTestRunningRef.current = true;
+
+    let stream = null;
+    let video = null;
+
+    try {
+      setConsoleLogs(prev => [...prev, '[Quick Test] Detecting cameras via the browser...']);
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        addToast({ type: 'error', title: 'Quick Camera Test Failed', message: 'This browser does not support camera enumeration.' });
+        return;
+      }
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let cams = devices.filter(d => d.kind === 'videoinput');
+      if (cams.length === 0) {
+        addToast({ type: 'error', title: 'Quick Camera Test Failed', message: 'No cameras were detected on this device.' });
+        return;
+      }
+
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: cams[0].deviceId ? { deviceId: { exact: cams[0].deviceId } } : true
+        });
+      } catch (mediaErr) {
+        addToast({ type: 'error', title: 'Quick Camera Test Failed', message: `Could not access webcam: ${mediaErr.message}` });
+        return;
+      }
+
+      // Labels are blank until permission is granted — re-enumerate now that
+      // getUserMedia succeeded, so the console log can show a real name.
+      devices = await navigator.mediaDevices.enumerateDevices();
+      cams = devices.filter(d => d.kind === 'videoinput');
+      const cameraLabel = cams[0]?.label || 'default camera';
+
+      video = document.createElement('video');
+      video.autoplay = true;
+      video.muted = true;
+      video.playsInline = true;
+      video.style.position = 'fixed';
+      video.style.left = '-9999px';
+      video.style.width = '1px';
+      video.style.height = '1px';
+      document.body.appendChild(video);
+      video.srcObject = stream;
+      await video.play().catch(() => {});
+
+      setConsoleLogs(prev => [...prev, `[Quick Test] Opened camera (${cameraLabel}). Grabbing frames...`]);
+
+      // Let the feed render a real frame before capturing
+      await new Promise(resolve => setTimeout(resolve, 700));
+
+      const capturedImages = {};
+      const frameCount = 5;
+      for (let i = 0; i < frameCount; i++) {
+        const canvas = document.createElement('canvas');
+        canvas.width = 640;
+        canvas.height = 360;
+        canvas.getContext('2d').drawImage(video, 0, 0, 640, 360);
+        capturedImages[`img${i + 1}`] = canvas.toDataURL('image/jpeg', 0.85);
+        await new Promise(resolve => setTimeout(resolve, 200));
+      }
+
+      stream.getTracks().forEach(track => track.stop());
+      document.body.removeChild(video);
+      stream = null;
+      video = null;
+
+      setConsoleLogs(prev => [...prev, '[Quick Test] Frames captured. Posting payload to recognize-images API...']);
+
+      const payload = {
+        camera_id: QUICK_TEST_CAMERA_ID,
+        process: 'server',
+        images: capturedImages,
+        dataset_folder: 'dataset',
+        collection_id: null,
+        log: true,
+        return_details: true
+      };
+
+      const res = await apiSvc.recognizeImages(payload);
+      if (res.ok) {
+        const summary = res.data?.response_data?.summary;
+        addToast({
+          type: 'success',
+          title: 'Quick Camera Test Complete',
+          message: summary
+            ? `Detected ${summary.total_faces} face(s) — ${summary.matched} matched, ${summary.unmatched} unmatched.`
+            : 'Recognition pipeline finished successfully.'
+        });
+        setConsoleLogs(prev => [...prev, `[Quick Test] Recognition successful. Total faces: ${summary?.total_faces ?? 0}`]);
+      } else {
+        addToast({ type: 'error', title: 'Quick Camera Test Failed', message: res.data?.response_message || 'Recognition pipeline returned an error.' });
+        setConsoleLogs(prev => [...prev, `[Quick Test] Recognition pipeline error: ${res.data?.response_message}`]);
+      }
+    } catch (err) {
+      addToast({ type: 'error', title: 'Quick Camera Test Failed', message: err.message });
+    } finally {
+      if (stream) stream.getTracks().forEach(track => track.stop());
+      if (video && video.parentNode) video.parentNode.removeChild(video);
+      quickTestRunningRef.current = false;
+    }
+  };
+
   // ─── Plan Banner State ────────────────────────────────────────────────────
   const [planBannerVisible, setPlanBannerVisible] = useState(() => {
     const dismissedMonth = localStorage.getItem('plan_banner_dismissed_month');
@@ -124,7 +243,7 @@ export const AppProvider = ({ children }) => {
 
     const loadBillingSummary = async () => {
       try {
-        const response = await fetch('/api/v1/admin/invoices/compute', {
+        const response = await fetch(`${apiSvc.API_BASE}/invoices/compute`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }
@@ -146,69 +265,6 @@ export const AppProvider = ({ children }) => {
 
     loadBillingSummary();
   }, [isLoggedIn, token]);
-
-  // ─── Live Polling Simulation (Only when logged in) ────────────────────────
-  useEffect(() => {
-    if (!isLoggedIn) return;
-
-    const interval = setInterval(() => {
-      const type = Math.random() > 0.5 ? 'unknown_entry' : 'face_hidden';
-      const triggerTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
-      
-      const newAlert = {
-        type,
-        crop_path: type === 'unknown_entry' ? 'https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=120&auto=format&fit=crop&q=60' : '',
-        image_path: 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=600&auto=format&fit=crop&q=60',
-        triggered_at: triggerTime,
-        triggered_at_epoch: Math.floor(Date.now() / 1000),
-        seen_with: type === 'unknown_entry' ? [{ name: 'Alex Jones' }] : [],
-        detection_id: 'det_' + Math.random().toString(36).substring(2, 12),
-        location: cameras[Math.floor(Math.random() * cameras.length)]?.location || 'Main Entrance',
-        action: 'checkin'
-      };
-
-      // Add to alerts state
-      setAlerts(prev => [newAlert, ...prev].slice(0, 20));
-
-      // Pop toast
-      addToast({
-        type: newAlert.type,
-        triggered_at: newAlert.triggered_at,
-        seen_with: newAlert.seen_with,
-        data: newAlert
-      });
-
-      // Add to console log
-      setConsoleLogs(prev => [
-        ...prev,
-        `[Pipeline] Active Surveillance trigger: ${newAlert.type === 'unknown_entry' ? 'Unknown Entry' : 'Face Hidden'} detected at ${newAlert.location}`
-      ]);
-
-      // Update statistics
-      setBillingSummary(prev => {
-        const isSearch = Math.random() > 0.3;
-        const addSearch = isSearch ? 1 : 0;
-        const addTrain = !isSearch ? 1 : 0;
-        const newSearchTotal = prev.search_total + addSearch;
-        const newTrainTotal = prev.training_total + addTrain;
-        const billableSearch = Math.max(0, newSearchTotal - prev.free_search_limit);
-        const billableTrain = Math.max(0, newTrainTotal - prev.free_training_limit);
-        const amountDue = billableSearch * prev.rate_search + billableTrain * prev.rate_training;
-        
-        return {
-          ...prev,
-          search_total: newSearchTotal,
-          training_total: newTrainTotal,
-          billable_search: billableSearch,
-          billable_training: billableTrain,
-          amount_due: amountDue
-        };
-      });
-
-    }, 20000); // 20s poller for page activity
-
-    return () => clearInterval(interval);
-  }, [isLoggedIn, cameras]);
 
   return (
     <AppContext.Provider
@@ -252,6 +308,7 @@ export const AppProvider = ({ children }) => {
         toasts,
         addToast,
         removeToast,
+        runBackgroundCameraDiagnostic,
         planBannerVisible,
         dismissPlanBanner,
         detections,

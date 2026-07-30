@@ -1,16 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import * as apiSvc from '../utils/api';
 
 export const TestCamera = () => {
   const { setConsoleLogs } = useApp();
 
-  const [usbList, setUsbList] = useState([]);
-  const [selectedUsb, setSelectedUsb] = useState('');
+  const [deviceList, setDeviceList] = useState([]); // [{deviceId, label}]
+  const [selectedDeviceId, setSelectedDeviceId] = useState('');
   const [scanning, setScanning] = useState(false);
-  const [scanStatus, setScanStatus] = useState('Rescan to fetch available hardware USB index ports.');
+  const [scanStatus, setScanStatus] = useState('Rescan to detect cameras connected to this browser.');
   const [isStreaming, setIsStreaming] = useState(false);
   const [feedTime, setFeedTime] = useState('');
   const [windowWidth, setWindowWidth] = useState(window.innerWidth);
@@ -21,8 +22,10 @@ export const TestCamera = () => {
   const fileInputRef = useRef(null);
 
   // Capture parameters states
-  const [cameraId, setCameraId] = useState('test_usb_camera');
-  const [processMode, setProcessMode] = useState('local');
+  const [cameraList, setCameraList] = useState([]);
+  const [camerasLoading, setCamerasLoading] = useState(true);
+  const [cameraId, setCameraId] = useState('');
+  const [processMode, setProcessMode] = useState('server');
   const [datasetFolder, setDatasetFolder] = useState('dataset');
   const [collectionId, setCollectionId] = useState('');
   const [logDetections, setLogDetections] = useState(true);
@@ -43,30 +46,42 @@ export const TestCamera = () => {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Load USB list on mount
+  // Discover cameras directly via the browser — no backend USB-scan call.
   const handleScanUsb = async () => {
     setScanning(true);
-    setScanStatus('Scanning USB bus indices...');
+    setScanStatus('Detecting cameras via the browser...');
     try {
-      const res = await apiSvc.scanUsb();
-      if (res.ok && res.data?.response_data) {
-        const ports = res.data.response_data.map(String);
-        setUsbList(ports);
-        setScanStatus(`Scan complete. Found ${ports.length} available ports.`);
-        if (ports.length > 0 && !ports.includes(selectedUsb)) {
-          setSelectedUsb(ports[0]);
+      if (!navigator.mediaDevices?.enumerateDevices) {
+        setDeviceList([]);
+        setScanStatus('This browser does not support camera enumeration.');
+        return;
+      }
+
+      let devices = await navigator.mediaDevices.enumerateDevices();
+      let cams = devices.filter(d => d.kind === 'videoinput');
+
+      // Device labels are blank until camera permission has been granted once.
+      // Request it briefly so the dropdown can show real camera names.
+      if (cams.length > 0 && cams.every(d => !d.label)) {
+        try {
+          const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+          tempStream.getTracks().forEach(track => track.stop());
+          devices = await navigator.mediaDevices.enumerateDevices();
+          cams = devices.filter(d => d.kind === 'videoinput');
+        } catch (permErr) {
+          // Permission denied — fall back to unlabeled devices below.
         }
-      } else {
-        const mockPorts = ['0', '1', '2'];
-        setUsbList(mockPorts);
-        setScanStatus('Scan failed or empty. Loading default mock indices.');
-        if (!selectedUsb) setSelectedUsb(mockPorts[0]);
+      }
+
+      const list = cams.map((d, i) => ({ deviceId: d.deviceId, label: d.label || `Camera ${i + 1}` }));
+      setDeviceList(list);
+      setScanStatus(`Scan complete. Found ${list.length} available camera${list.length === 1 ? '' : 's'}.`);
+      if (list.length > 0 && !list.some(d => d.deviceId === selectedDeviceId)) {
+        setSelectedDeviceId(list[0].deviceId);
       }
     } catch (e) {
-      const mockPorts = ['0', '1', '2'];
-      setUsbList(mockPorts);
-      setScanStatus('Could not reach backend server. Loading mock indices.');
-      if (!selectedUsb) setSelectedUsb(mockPorts[0]);
+      setDeviceList([]);
+      setScanStatus(`Could not enumerate cameras: ${e.message}`);
     } finally {
       setScanning(false);
     }
@@ -74,6 +89,29 @@ export const TestCamera = () => {
 
   useEffect(() => {
     handleScanUsb();
+  }, []);
+
+  // Load enrolled cameras for the "Camera ID" dropdown — shows each camera's
+  // name but stores its Mongo _id as the actual value sent to the API.
+  useEffect(() => {
+    const loadCameras = async () => {
+      setCamerasLoading(true);
+      try {
+        const res = await apiSvc.fetchCameras();
+        if (res.ok && Array.isArray(res.data?.response_data)) {
+          const list = res.data.response_data.map(c => ({ ...c, _id: c._id || c.id }));
+          setCameraList(list);
+          if (list.length > 0) {
+            setCameraId(prev => list.some(c => c._id === prev) ? prev : list[0]._id);
+          }
+        }
+      } catch (e) {
+        // Keep the existing default cameraId if the list can't be loaded
+      } finally {
+        setCamerasLoading(false);
+      }
+    };
+    loadCameras();
   }, []);
 
   // Update ticking clock
@@ -98,19 +136,22 @@ export const TestCamera = () => {
 
   // Streaming Actions
   const handleStartStream = async () => {
-    if (!selectedUsb) {
-      alert("Select a USB Index first.");
+    if (!selectedDeviceId) {
+      alert("Select a camera first.");
       return;
     }
     setError(null);
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { deviceId: { exact: selectedDeviceId } }
+      });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         localStreamRef.current = stream;
       }
       setIsStreaming(true);
-      setConsoleLogs(prev => [...prev, `[Camera Test] Real webcam stream started for USB Index: ${selectedUsb}`]);
+      const label = deviceList.find(d => d.deviceId === selectedDeviceId)?.label || selectedDeviceId;
+      setConsoleLogs(prev => [...prev, `[Camera Test] Real webcam stream started: ${label}`]);
     } catch (err) {
       console.error("Failed to access webcam feed:", err);
       setError(`Permission denied or no webcam hardware found: ${err.message}. Showing simulated diagnostic stream.`);
@@ -183,7 +224,8 @@ export const TestCamera = () => {
         ctx.fillStyle = '#10b981'; // Green color overlay
         ctx.font = 'bold 12px monospace';
         ctx.textAlign = 'left';
-        ctx.fillText(`TEST USB INDEX: ${selectedUsb}`, 15, 30);
+        const cameraLabel = deviceList.find(d => d.deviceId === selectedDeviceId)?.label || selectedDeviceId;
+        ctx.fillText(`CAMERA: ${cameraLabel}`, 15, 30);
         ctx.fillText(`TIMESTAMP: ${new Date().toISOString()}`, 15, 48);
         ctx.fillText(`CAPTURE: frame ${current + 1}/${count} (5 FPS)`, 15, 66);
 
@@ -287,11 +329,11 @@ export const TestCamera = () => {
 
   return (
     <div style={{ width: '100%' }}>
-      {/* Page Header */}
-      <div style={{ marginBottom: '24px' }}>
-        <h2 style={{ color: 'var(--fg-strong)', fontSize: '18px', fontWeight: '800' }}>Hardware Diagnostics</h2>
-        <p className="text-muted" style={{ marginTop: '2px' }}>Query and preview active USB capture interfaces connected to your local system environment.</p>
-      </div>
+      <PageHeader
+        title="Hardware Diagnostics"
+        description="Query and preview active camera devices detected directly by your browser."
+        badge="Shift+P quick test"
+      />
 
       {error && (
         <div className="banner-err" style={{ background: 'rgba(240,71,90,0.1)', borderColor: 'rgba(240,71,90,0.3)', borderLeftColor: 'var(--err)', color: 'var(--fg)', marginBottom: '20px' }}>
@@ -304,33 +346,33 @@ export const TestCamera = () => {
         {/* Column 1: Config Forms */}
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
           
-          {/* Section 1: USB Port Discovery */}
+          {/* Section 1: Camera Discovery */}
           <div className="panel" style={{ padding: '20px' }}>
             <h3 style={{ fontWeight: '800', fontSize: '13.5px', color: 'var(--fg-strong)', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
               <Icon name="grid" size={15} />
-              USB Port Selection
+              Camera Selection
             </h3>
 
             <div style={{ display: 'flex', gap: '8px', marginBottom: '10px' }}>
               <select
                 className="form-select"
                 style={{ ...inputStyle, maxWidth: '180px', cursor: 'pointer' }}
-                value={selectedUsb}
+                value={selectedDeviceId}
                 onChange={(e) => {
-                  setSelectedUsb(e.target.value);
+                  setSelectedDeviceId(e.target.value);
                   if (isStreaming) {
                     handleStopStream();
                   }
                 }}
               >
-                {usbList.length > 0 ? (
-                  usbList.map((port) => (
-                    <option key={port} value={port}>
-                      USB Port Index {port}
+                {deviceList.length > 0 ? (
+                  deviceList.map((d) => (
+                    <option key={d.deviceId} value={d.deviceId}>
+                      {d.label}
                     </option>
                   ))
                 ) : (
-                  <option value="">No USB Ports Scanned</option>
+                  <option value="">No Cameras Detected</option>
                 )}
               </select>
 
@@ -341,10 +383,10 @@ export const TestCamera = () => {
                 onClick={handleScanUsb}
                 disabled={scanning}
               >
-                {scanning ? 'Scanning...' : 'Rescan Ports'}
+                {scanning ? 'Scanning...' : 'Rescan Cameras'}
               </button>
             </div>
-            
+
             <div className="text-muted" style={{ fontSize: '11px', marginBottom: '16px' }}>
               {scanStatus}
             </div>
@@ -354,7 +396,7 @@ export const TestCamera = () => {
               className={`btn btn-sm ${isStreaming ? 'btn-danger' : 'btn-primary'}`}
               style={{ width: '100%', fontWeight: 'bold', padding: '10px' }}
               onClick={isStreaming ? handleStopStream : handleStartStream}
-              disabled={usbList.length === 0}
+              disabled={deviceList.length === 0}
             >
               {isStreaming ? '⏹ Stop Diagnostic Stream' : '▶ Start Diagnostic Stream'}
             </button>
@@ -370,12 +412,26 @@ export const TestCamera = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '12px' }}>
               <div className="form-group" style={{ marginBottom: 0 }}>
                 <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px' }}>Camera ID</label>
-                <input
-                  className="form-input"
-                  style={inputStyle}
-                  value={cameraId}
-                  onChange={e => setCameraId(e.target.value)}
-                />
+                {cameraList.length > 0 ? (
+                  <select
+                    className="form-select"
+                    style={{ ...inputStyle, background: 'var(--bg2)' }}
+                    value={cameraId}
+                    onChange={e => setCameraId(e.target.value)}
+                  >
+                    {cameraList.map(c => (
+                      <option key={c._id} value={c._id}>{c.name}</option>
+                    ))}
+                  </select>
+                ) : (
+                  <input
+                    className="form-input"
+                    style={inputStyle}
+                    value={cameraId}
+                    onChange={e => setCameraId(e.target.value)}
+                    placeholder={camerasLoading ? 'Loading cameras…' : 'No cameras found — enter ID manually'}
+                  />
+                )}
               </div>
               <div className="form-group" style={{ marginBottom: 0, marginTop: '12px' }}>
                 <label className="form-label" style={{ fontSize: '11px', marginBottom: '4px' }}>Process Mode</label>
@@ -478,7 +534,7 @@ export const TestCamera = () => {
                   </div>
 
                   <div style={{ position: 'absolute', top: '12px', right: '12px', fontSize: '9px', fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)', background: 'rgba(0,0,0,0.5)', padding: '4px 10px', borderRadius: '4px' }}>
-                    USB Index {selectedUsb}
+                    {deviceList.find(d => d.deviceId === selectedDeviceId)?.label || selectedDeviceId}
                   </div>
 
                   <div style={{ position: 'absolute', bottom: '12px', right: '12px', fontSize: '10px', fontFamily: 'monospace', color: 'rgba(255,255,255,0.8)', background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px' }}>
@@ -496,7 +552,7 @@ export const TestCamera = () => {
                   </div>
                   <div style={{ fontWeight: 'bold', color: 'var(--fg-strong)', fontSize: '14px' }}>Diagnostic Stream Offline</div>
                   <p className="text-muted" style={{ fontSize: '11px', marginTop: '4px', maxWidth: '240px' }}>
-                    Select a connected USB camera port and click "Start Diagnostic Stream".
+                    Select a detected camera and click "Start Diagnostic Stream".
                   </p>
                 </div>
               )}
@@ -657,17 +713,18 @@ export const TestCamera = () => {
                         ) : resObj.faces && resObj.faces.length > 0 ? (
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                             {resObj.faces.map((f, i) => (
-                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(255,255,255,0.02)', padding: '6px 8px', borderRadius: '6px', border: '1px solid rgba(255,255,255,0.03)' }}>
+                              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', background: f.expired ? 'rgba(245,166,35,0.08)' : 'rgba(255,255,255,0.02)', padding: '6px 8px', borderRadius: '6px', border: f.expired ? '1px solid rgba(245,166,35,0.3)' : '1px solid rgba(255,255,255,0.03)' }}>
                                 {f.crop_path && (
                                   <SecureImage
                                     src={f.crop_path}
-                                    style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover' }}
+                                    style={{ width: '36px', height: '36px', borderRadius: '4px', objectFit: 'cover', border: f.expired ? '2px solid var(--warn)' : 'none' }}
                                     alt="Face Preview"
                                   />
                                 )}
                                 <div>
-                                  <div style={{ color: 'var(--fg-strong)', fontWeight: 'bold', fontSize: '11px' }}>
+                                  <div style={{ color: 'var(--fg-strong)', fontWeight: 'bold', fontSize: '11px', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                     {f.name}
+                                    {f.expired && <span className="badge badge-warn" style={{ fontSize: '8px' }}>Expired Membership</span>}
                                   </div>
                                   <div style={{ fontSize: '9.5px', color: 'var(--fg3)' }}>
                                     {f.similarity?.toFixed(1)}% similarity

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import { fetchPersons, fetchUnknowns } from '../utils/api';
 
@@ -120,6 +121,11 @@ export const Persons = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Persons Directory"
+        description="Browse enrolled members and staff, or review unresolved unknown captures."
+      />
+
       {/* Premium Tab Bar Container */}
       <div style={{ display: 'flex', gap: '8px', borderBottom: '1px solid var(--border)', paddingBottom: '16px', marginBottom: '20px' }}>
         <button
@@ -193,9 +199,10 @@ export const Persons = () => {
           ) : personsList.length > 0 ? (
             <div className="person-grid">
               {personsList.map((p) => {
+                const personId = p.id || p._id;
                 const daysLeft = calculateDaysLeft(p.package_expiry);
                 return (
-                  <Link key={p._id} to={`/person/${p._id}`} className="person-card">
+                  <Link key={personId} to={`/person/${personId}`} className="person-card">
                     <SecureImage src={p.photo_path} alt={p.name} />
                     <div className="person-card-body">
                       <div className="person-card-name">{p.name}</div>
@@ -203,6 +210,7 @@ export const Persons = () => {
                         <span className={`badge badge-sm ${p.role === 'staff' ? 'badge-role-staff' : 'badge-role-member'}`} style={{ marginTop: '4px' }}>
                           {p.role}
                         </span>
+                        {p.person_code && <span className="badge badge-muted" style={{ marginTop: '4px', marginLeft: '4px' }}>{p.person_code}</span>}
                       </div>
                       <div className="person-card-meta" style={{ marginTop: '6px', fontSize: '10.5px' }}>
                         Seen {p.total_appearances || 0} times

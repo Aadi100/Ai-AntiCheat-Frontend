@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import { fetchAlerts } from '../utils/api';
+import { alertMeta } from '../utils/alertTypes';
 
 export const Alerts = () => {
   const { openCardModal } = useApp();
@@ -57,6 +59,12 @@ export const Alerts = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Security Alerts"
+        description="Unknown-entry, face-hidden, and expired-membership violations flagged by the surveillance pipeline."
+        badge={`${totalRecords} total`}
+      />
+
       {/* Alert Type Filters */}
       <div className="filter-bar">
         <button
@@ -76,6 +84,12 @@ export const Alerts = () => {
           onClick={() => setFilterType('face_hidden')}
         >
           🫣 Hidden Faces
+        </button>
+        <button
+          className={`filter-btn ${filterType === 'expired_membership' ? 'active' : ''}`}
+          onClick={() => setFilterType('expired_membership')}
+        >
+          ⏳ Expired Memberships
         </button>
       </div>
 
@@ -99,6 +113,7 @@ export const Alerts = () => {
             {filteredAlerts.map((a, idx) => {
               if (!a) return null;
               const seenWithNames = Array.isArray(a.seen_with) ? a.seen_with.map(s => s.name || s) : [];
+              const meta = alertMeta(a.type);
               const cardData = {
                 type: a.type,
                 crop: a.crop_path,
@@ -106,24 +121,21 @@ export const Alerts = () => {
                 time: a.triggered_at,
                 time_epoch: a.triggered_at_epoch,
                 seen_with: seenWithNames,
-                detection_id: a.detection_id || a._id
+                detection_id: a.detection_id || a.id || a._id
               };
 
               return (
                 <div
-                  key={a._id || idx}
-                  className={`alert-card ${a.type === 'face_hidden' ? 'hidden' : ''}`}
+                  key={a.id || a._id || idx}
+                  className={`alert-card ${meta.cardClass}`}
                   style={{ cursor: 'pointer' }}
                   onClick={() => openCardModal(cardData)}
                 >
                   <div className="alert-card-body">
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '8px' }}>
                       <div>
-                        {a.type === 'face_hidden' ? (
-                          <span className="badge badge-warn">Face Hidden</span>
-                        ) : (
-                          <span className="badge badge-err">Unknown Entry</span>
-                        )}
+                        <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>
+                        {a.alert_code && <span className="badge badge-muted" style={{ marginLeft: '4px' }}>{a.alert_code}</span>}
                       </div>
                       <span className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
                         {a.triggered_at}
@@ -186,7 +198,7 @@ export const Alerts = () => {
       ) : (
         <div className="empty-state">
           <div className="empty-icon"><Icon name="check-circle" size={30} /></div>
-          No alerts recorded for filter: {filterType === 'all' ? 'All' : filterType === 'unknown_entry' ? 'Unknown Entry' : 'Face Hidden'}.
+          No alerts recorded for filter: {filterType === 'all' ? 'All' : alertMeta(filterType).label}.
         </div>
       )}
     </div>

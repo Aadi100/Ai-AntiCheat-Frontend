@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import * as apiSvc from '../utils/api';
 
 export const Camera = () => {
@@ -66,7 +67,12 @@ export const Camera = () => {
       setError(null);
       const res = await apiSvc.fetchCameras();
       if (res.ok) {
-        const list = res.data.response_data || [];
+        // Backend now returns "id" instead of "_id" — normalize so the rest
+        // of this view (which keys/links off `_id`) keeps working either way.
+        // Suspended cameras (soft-deleted) are filtered out of the visible list.
+        const list = (res.data.response_data || [])
+          .filter(c => c.status !== 'suspended')
+          .map(c => ({ ...c, _id: c._id || c.id }));
         setCameras(list);
       } else {
         setError(res.data?.response_message || 'Failed to fetch cameras list.');
@@ -185,7 +191,7 @@ export const Camera = () => {
     try {
       setSaving(true);
       const res = await apiSvc.updateCamera({
-        _id: selectedCameraId,
+        id: selectedCameraId,
         name: editName,
         source: editSource,
         location: editLocation,
@@ -211,7 +217,7 @@ export const Camera = () => {
   const handleDeleteCamera = async (id, name) => {
     if (window.confirm(`Delete camera "${name}"?`)) {
       try {
-        const res = await apiSvc.deleteCamera(id);
+        const res = await apiSvc.suspendCamera(id);
         if (res.ok) {
           setConsoleLogs(prev => [...prev, `[Camera] Deleted camera "${name}".`]);
           if (selectedCameraId === id) {
@@ -309,7 +315,7 @@ export const Camera = () => {
 
       if (createRes.ok) {
         const createdCam = createRes.data.response_data || {};
-        const newCamId = createdCam._id;
+        const newCamId = createdCam.id || createdCam._id;
 
         if (addRoiBox) {
           await apiSvc.setCameraRoi(newCamId, addRoiBox);
@@ -491,20 +497,18 @@ export const Camera = () => {
 
   return (
     <div>
-      {/* Page Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h2 style={{ color: 'var(--fg-strong)', fontSize: '18px', fontWeight: '800' }}>Camera Operations</h2>
-          <p className="text-muted" style={{ marginTop: '2px' }}>Manage remote IP video sources and configure localized region-of-interest triggers.</p>
-        </div>
-        <button 
-          className="btn btn-primary" 
+      <PageHeader
+        title="Camera Operations"
+        description="Manage remote IP video sources and configure localized region-of-interest triggers."
+        badge={`${cameras.length} configured`}
+      >
+        <button
+          className="btn btn-primary"
           onClick={() => { handleCancelAdd(); setIsAddModalOpen(true); }}
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '10px 18px', borderRadius: '24px', fontWeight: '700', fontSize: '12.5px' }}
         >
-          ➕ Add IP Camera
+          <Icon name="plus" size={14} /> Add IP Camera
         </button>
-      </div>
+      </PageHeader>
 
       {statusMsg && (
         <div className="banner-err" style={{ background: 'rgba(139,92,246,.1)', borderColor: 'rgba(139,92,246,.3)', borderLeftColor: 'var(--accent)', color: 'var(--fg)', marginBottom: '20px' }}>
@@ -538,8 +542,9 @@ export const Camera = () => {
                 {/* Card Header Info */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
                   <div>
-                    <h3 style={{ fontWeight: '800', fontSize: '15px', color: 'var(--fg-strong)', margin: 0 }}>
+                    <h3 style={{ fontWeight: '800', fontSize: '15px', color: 'var(--fg-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
                       {c.name}
+                      {c.camera_code && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{c.camera_code}</span>}
                     </h3>
                     <div style={{ fontSize: '11px', color: 'var(--fg2)', wordBreak: 'break-all', fontFamily: 'monospace', marginTop: '4px' }}>
                       🔗 {c.source}

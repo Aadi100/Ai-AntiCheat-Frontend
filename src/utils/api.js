@@ -1,13 +1,39 @@
 /**
  * Centralized API service layer.
- * All requests use the Authorization: Bearer <token> header.
+ * Auth is JWT-based: every request uses Authorization: Bearer <access_token>.
+ * On a 401, the access token is silently refreshed once via the refresh
+ * token and the original request is retried before giving up.
  * Vite dev proxy forwards /api/* -> http://localhost:5050
  */
 
 const BASE = '';
 
+// Single source of truth for the API version — bump this in one place to
+// re-point every endpoint below (e.g. 'v1' -> 'v2').
+const API_VERSION = 'v1';
+const API = `/api/${API_VERSION}`;
+export const API_BASE = API;
+
+const TOKEN_KEY = 'token';
+const REFRESH_TOKEN_KEY = 'refresh_token';
+
 function getToken() {
-  return localStorage.getItem('token') || '';
+  return localStorage.getItem(TOKEN_KEY) || '';
+}
+
+function getRefreshToken() {
+  return localStorage.getItem(REFRESH_TOKEN_KEY) || '';
+}
+
+/** Persist the access/refresh token pair returned by /login or /refresh. */
+export function setTokens({ access_token, refresh_token } = {}) {
+  if (access_token) localStorage.setItem(TOKEN_KEY, access_token);
+  if (refresh_token) localStorage.setItem(REFRESH_TOKEN_KEY, refresh_token);
+}
+
+export function clearTokens() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
 function authHeaders(extra = {}) {
@@ -28,105 +54,118 @@ function stripHtml(str) {
     .substring(0, 300);          // cap at 300 chars
 }
 
+// De-duped in-flight refresh — concurrent 401s share one /refresh call.
+let refreshPromise = null;
 
-async function apiGet(path) {
-  try {
-    const res = await fetch(BASE + path, {
-      method: 'GET',
-      headers: authHeaders(),
-    });
-    const contentType = res.headers.get('content-type') || '';
-    let data = null;
-    if (contentType.includes('application/json')) {
-      data = await res.json();
-    } else {
-      const text = await res.text();
-      const clean = text.trim().startsWith('<') ? stripHtml(text) : (text || res.statusText);
-      data = { response_message: clean };
-    }
-    return { ok: res.ok, status: res.status, data };
-  } catch (err) {
-    return { ok: false, status: 0, data: { response_message: err.message } };
+async function refreshAccessToken() {
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return false;
+
+  if (!refreshPromise) {
+    refreshPromise = fetch(BASE + API + '/refresh', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${refreshToken}` }
+    })
+      .then(async (res) => {
+        if (!res.ok) return false;
+        const data = await res.json().catch(() => null);
+        const newAccessToken = data?.response_data?.access_token;
+        if (!newAccessToken) return false;
+        setTokens({ access_token: newAccessToken });
+        return true;
+      })
+      .catch(() => false)
+      .finally(() => { refreshPromise = null; });
   }
+  return refreshPromise;
 }
 
-async function apiPost(path, body = {}, isForm = false) {
+async function parseResponse(res) {
+  const contentType = res.headers.get('content-type') || '';
+  let data = null;
+  if (contentType.includes('application/json')) {
+    data = await res.json();
+  } else {
+    const text = await res.text();
+    const clean = text.trim().startsWith('<') ? stripHtml(text) : (text || res.statusText);
+    data = { response_message: clean };
+  }
+  return { ok: res.ok, status: res.status, data };
+}
+
+// Endpoints that must never trigger a refresh-and-retry (avoids loops).
+const NO_REFRESH_PATHS = [API + '/login', API + '/refresh'];
+
+async function doFetch(method, path, { body, isForm, isRetry } = {}) {
   try {
     const headers = isForm
       ? { 'Authorization': `Bearer ${getToken()}` }
       : authHeaders();
-    const bodyPayload = isForm
-      ? (() => { const f = new FormData(); Object.entries(body).forEach(([k, v]) => f.append(k, v)); return f; })()
-      : JSON.stringify(body);
-    const res = await fetch(BASE + path, { method: 'POST', headers, body: bodyPayload });
-    const contentType = res.headers.get('content-type') || '';
-    let data = null;
-    if (contentType.includes('application/json')) {
-      data = await res.json();
-    } else {
-      const text = await res.text();
-      data = { response_message: text || res.statusText };
+    const fetchOpts = { method, headers };
+    if (body !== undefined) {
+      fetchOpts.body = isForm
+        ? (() => { const f = new FormData(); Object.entries(body).forEach(([k, v]) => f.append(k, v)); return f; })()
+        : JSON.stringify(body);
     }
-    return { ok: res.ok, status: res.status, data };
+
+    const res = await fetch(BASE + path, fetchOpts);
+
+    if (res.status === 401 && !isRetry && !NO_REFRESH_PATHS.includes(path)) {
+      const refreshed = await refreshAccessToken();
+      if (refreshed) {
+        return doFetch(method, path, { body, isForm, isRetry: true });
+      }
+    }
+
+    return parseResponse(res);
   } catch (err) {
     return { ok: false, status: 0, data: { response_message: err.message } };
   }
+}
+
+async function apiGet(path) {
+  return doFetch('GET', path);
+}
+
+async function apiPost(path, body = {}, isForm = false) {
+  return doFetch('POST', path, { body, isForm });
 }
 
 async function apiPut(path, body = {}) {
-  try {
-    const res = await fetch(BASE + path, {
-      method: 'PUT',
-      headers: authHeaders(),
-      body: JSON.stringify(body)
-    });
-    const contentType = res.headers.get('content-type') || '';
-    let data = null;
-    if (contentType.includes('application/json')) {
-      data = await res.json();
-    } else {
-      const text = await res.text();
-      data = { response_message: text || res.statusText };
-    }
-    return { ok: res.ok, status: res.status, data };
-  } catch (err) {
-    return { ok: false, status: 0, data: { response_message: err.message } };
-  }
+  return doFetch('PUT', path, { body });
 }
 
 async function apiDelete(path) {
-  try {
-    const res = await fetch(BASE + path, {
-      method: 'DELETE',
-      headers: authHeaders()
-    });
-    const contentType = res.headers.get('content-type') || '';
-    let data = null;
-    if (contentType.includes('application/json')) {
-      data = await res.json();
-    } else {
-      const text = await res.text();
-      data = { response_message: text || res.statusText };
-    }
-    return { ok: res.ok, status: res.status, data };
-  } catch (err) {
-    return { ok: false, status: 0, data: { response_message: err.message } };
-  }
+  return doFetch('DELETE', path);
 }
 
 // ─── Auth ────────────────────────────────────────────────────────────────────
 export const authLogin = (username, password) =>
-  apiPost('/api/v1/admin/login', { username, password });
+  apiPost(API + '/login', { username, password });
+
+// Uses the refresh token (not the access token) as the bearer credential.
+export const authRefresh = async () => {
+  const refreshToken = getRefreshToken();
+  try {
+    const res = await fetch(BASE + API + '/refresh', {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${refreshToken}` }
+    });
+    return parseResponse(res);
+  } catch (err) {
+    return { ok: false, status: 0, data: { response_message: err.message } };
+  }
+};
 
 export const authLogout = () =>
-  apiPost('/api/v1/admin/logout');
+  apiPost(API + '/logout');
 
 // ─── Dashboard Stats ─────────────────────────────────────────────────────────
 export const fetchDashboardStats = () =>
-  apiGet('/api/v1/admin/detections/dashboard-stats');
+  apiGet(API + '/detections/dashboard-stats');
 
 export const fetchAnalytics = () =>
-  apiGet('/api/v1/admin/detections/analytics');
+  apiGet(API + '/detections/analytics');
 
 export const fetchDashboard = (recentLimit = 10, violationsLimit = 6, topLocationsLimit = 5) => {
   const params = new URLSearchParams({
@@ -134,129 +173,128 @@ export const fetchDashboard = (recentLimit = 10, violationsLimit = 6, topLocatio
     violations_limit: violationsLimit,
     top_locations_limit: topLocationsLimit
   });
-  return apiGet(`/api/v1/admin/dashboard?${params}`);
+  return apiGet(`${API}/dashboard?${params}`);
 };
 
 // ─── Entry Log / Detections ───────────────────────────────────────────────────
 export const fetchDetectionsPaginated = (page = 1, perPage = 20, filter = null) => {
   const params = new URLSearchParams({ page, per_page: perPage });
   if (filter) params.append('filter', filter);
-  return apiGet(`/api/v1/admin/detections/sessions?${params}`);
+  return apiGet(`${API}/detections/sessions?${params}`);
 };
 
 export const fetchDetectionSessions = (page = 1, perPage = 20) => {
   const params = new URLSearchParams({ page, per_page: perPage });
-  return apiGet(`/api/v1/admin/detections/sessions?${params}`);
+  return apiGet(`${API}/detections/sessions?${params}`);
 };
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────
 export const fetchAlerts = (page = 1, perPage = 20) => {
   const params = new URLSearchParams({ page, per_page: perPage });
-  return apiGet(`/api/v1/admin/alerts/paginated?${params}`);
+  return apiGet(`${API}/alerts/paginated?${params}`);
 };
 
 export const fetchAlertsLatest = (since = 0, limit = 20) =>
-  apiGet(`/api/v1/admin/alerts/latest?since=${since}&limit=${limit}`);
+  apiGet(`${API}/alerts/latest?since=${since}&limit=${limit}`);
 
 export const fetchAlertsBreakdown = () =>
-  apiGet('/api/v1/admin/alerts/breakdown');
+  apiGet(API + '/alerts/breakdown');
 
 export const fetchAlertsTopLocations = () =>
-  apiGet('/api/v1/admin/alerts/top-locations');
+  apiGet(API + '/alerts/top-locations');
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
 export const fetchPersons = (filters = {}) => {
   const params = new URLSearchParams(filters);
-  return apiGet(`/api/v1/admin/persons/read?${params}`);
+  return apiGet(`${API}/persons/read?${params}`);
 };
 
-export const fetchPerson = (id) =>
-  apiGet(`/api/v1/admin/persons/read?_id=${id}`);
+// GET /persons/read only supports name / role / enrollment_id filters — there is
+// no server-side id lookup, so callers fetch the full list and find client-side.
+export const fetchPerson = () =>
+  apiGet(API + '/persons/read');
 
 export const createPerson = (body) =>
-  apiPost('/api/v1/admin/persons/create', body);
+  apiPost(API + '/persons/create', body);
 
 export const updatePerson = (body) =>
-  apiPut('/api/v1/admin/persons/update', body);
+  apiPut(API + '/persons/update', body);
 
 export const suspendPerson = (id) =>
-  apiPost('/api/v1/admin/persons/suspend', { _id: id });
+  apiPost(API + '/persons/suspend', { id });
 
 export const fetchPersonsExpiringSoon = (days = 7) =>
-  apiGet(`/api/v1/admin/persons/expiring-soon?days=${days}`);
+  apiGet(`${API}/persons/expiring-soon?days=${days}`);
 
 export const fetchPersonsRoleCounts = () =>
-  apiGet('/api/v1/admin/persons/role-counts');
+  apiGet(API + '/persons/role-counts');
 
 export const fetchPersonsExcluded = () =>
-  apiGet('/api/v1/admin/persons/excluded');
+  apiGet(API + '/persons/excluded');
 
 // ─── Unknown Persons ─────────────────────────────────────────────────────────
 export const fetchUnknowns = (page = 1, perPage = 24) => {
   const params = new URLSearchParams({ page, per_page: perPage });
-  return apiGet(`/api/v1/admin/unknowns/paginated?${params}`);
+  return apiGet(`${API}/unknowns/paginated?${params}`);
 };
 
 export const fetchUnknown = (seq) =>
-  apiGet(`/api/v1/admin/unknowns/by-seq/${seq}`);
+  apiGet(`${API}/unknowns/by-seq/${seq}`);
 
 export const fetchUnknownPhotos = (seq) =>
-  apiGet(`/api/v1/admin/unknowns/by-seq/${seq}/photos`);
+  apiGet(`${API}/unknowns/by-seq/${seq}/photos`);
 
 export const deleteUnknown = (seq) =>
-  apiDelete(`/api/v1/admin/unknowns/by-seq/${seq}`);
+  apiDelete(`${API}/unknowns/by-seq/${seq}`);
 
 export const createUnknown = (body) =>
-  apiPost('/api/v1/admin/unknowns/create', body);
+  apiPost(API + '/unknowns/create', body);
 
 export const updateUnknown = (body) =>
-  apiPut('/api/v1/admin/unknowns/update', body);
+  apiPut(API + '/unknowns/update', body);
 
 export const suspendUnknown = (id) =>
-  apiPost('/api/v1/admin/unknowns/suspend', { _id: id });
+  apiPost(API + '/unknowns/suspend', { _id: id });
 
 export const processUnknownSighting = (body) =>
-  apiPost('/api/v1/admin/unknowns/process-sighting', body);
+  apiPost(API + '/unknowns/process-sighting', body);
 
 // ─── Cameras ─────────────────────────────────────────────────────────────────
 export const fetchCameras = () =>
-  apiGet('/api/v1/admin/cameras/list');
+  apiGet(API + '/cameras/list');
 
 export const createCamera = (body) =>
-  apiPost('/api/v1/admin/cameras/create', body);
+  apiPost(API + '/cameras/create', body);
 
 export const updateCamera = (body) =>
-  apiPut('/api/v1/admin/cameras/update', body);
+  apiPut(API + '/cameras/update', body);
 
-export const deleteCamera = (id) =>
-  apiDelete(`/api/v1/admin/cameras/${id}`);
+export const suspendCamera = (id) =>
+  apiPost(API + '/cameras/suspend', { id });
 
 export const setCameraRoi = (id, roi) =>
-  apiPost(`/api/v1/admin/cameras/${id}/roi`, { roi });
+  apiPost(`${API}/cameras/${id}/roi`, { roi });
 
 export const startCamera = (cameraId) =>
-  apiPost(`/api/v1/admin/cameras/${cameraId}/start`);
+  apiPost(`${API}/cameras/${cameraId}/start`);
 
 export const stopCamera = (cameraId) =>
-  apiPost(`/api/v1/admin/cameras/${cameraId}/stop`);
-
-export const scanUsb = () =>
-  apiGet('/api/v1/admin/cameras/scan-usb');
+  apiPost(`${API}/cameras/${cameraId}/stop`);
 
 // ─── Grab / Detection Pipeline ───────────────────────────────────────────────
 export const grabCamera = (cameraId) =>
-  apiPost(`/api/v1/admin/grabs/${cameraId}/grab`);
+  apiPost(`${API}/grabs/${cameraId}/grab`);
 
 export const captureCamera = (cameraId) =>
-  apiPost(`/api/v1/admin/grabs/${cameraId}/capture`);
+  apiPost(`${API}/grabs/${cameraId}/capture`);
 
 export const grabStatus = (cameraId) =>
-  apiGet(`/api/v1/admin/grabs/${cameraId}/status`);
+  apiGet(`${API}/grabs/${cameraId}/status`);
 
 // ─── Billing / Invoices ───────────────────────────────────────────────────────
 export const fetchInvoices = (status = '') => {
   const q = status ? `?status=${status}` : '';
-  return apiGet(`/api/v1/admin/invoices/read${q}`);
+  return apiGet(`${API}/invoices/read${q}`);
 };
 
 export const computeBilling = (year = '', monthNum = '') => {
@@ -264,46 +302,43 @@ export const computeBilling = (year = '', monthNum = '') => {
   if (year) params.year = year;
   if (monthNum) params.month_num = monthNum;
   const q = new URLSearchParams(params).toString();
-  return apiGet(`/api/v1/admin/invoices/compute${q ? `?${q}` : ''}`);
+  return apiGet(`${API}/invoices/compute${q ? `?${q}` : ''}`);
 };
 
 export const generateInvoice = (year, monthNum) =>
-  apiPost('/api/v1/admin/invoices/generate', { year, month_num: monthNum });
+  apiPost(API + '/invoices/generate', { year, month_num: monthNum });
 
 export const markInvoicePaid = (monthId) =>
-  apiPost(`/api/v1/admin/invoices/${monthId}/mark-paid`);
+  apiPost(`${API}/invoices/${monthId}/mark-paid`);
 
 export const markInvoiceUnpaid = (monthId) =>
-  apiPost(`/api/v1/admin/invoices/${monthId}/mark-unpaid`);
+  apiPost(`${API}/invoices/${monthId}/mark-unpaid`);
 
 export const backfillInvoices = () =>
-  apiPost('/api/v1/admin/invoices/ensure-past-months');
+  apiPost(API + '/invoices/ensure-past-months');
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
 export const fetchSettings = () =>
-  apiGet('/api/v1/admin/settings');
+  apiGet(API + '/settings');
 
 export const fetchRecognitionOptions = () =>
-  apiGet('/api/v1/admin/settings/recognition-options');
+  apiGet(API + '/settings/recognition-options');
 
 export const saveSettings = (body) =>
-  apiPost('/api/v1/admin/settings/save', body);
+  apiPost(API + '/settings/save', body);
 
 export const saveMatchSettings = (body) =>
-  apiPost('/api/v1/admin/settings/save-match', body);
-
-export const regenerateApiKey = () =>
-  apiPost('/api/v1/admin/settings/regenerate-api-key');
+  apiPost(API + '/settings/save-match', body);
 
 export const flushDatabase = () =>
-  apiPost('/api/v1/admin/settings/flush-database');
+  apiPost(API + '/settings/flush-database');
 
 
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
 export const fetchReport = (params = {}) => {
   const q = new URLSearchParams(params);
-  return apiGet(`/api/v1/admin/reports?${q}`);
+  return apiGet(`${API}/reports?${q}`);
 };
 
 // ─── Console Log ─────────────────────────────────────────────────────────────
@@ -315,11 +350,11 @@ export const clearConsoleLog = () =>
 
 // ─── Server Usage ─────────────────────────────────────────────────────────────
 export const fetchServerUsage = (days = 30) =>
-  apiGet(`/api/v1/admin/server-usage?days=${days}`);
+  apiGet(`${API}/server-usage?days=${days}`);
 
-// ─── Recognize Images (new admin API) ────────────────────────────────────────
+// ─── Recognize Images ──────────────────────────────────────────────────────────
 export const recognizeImages = (payload) =>
-  apiPost('/api/v1/admin/detections/recognize-images', payload);
+  apiPost(API + '/detections/recognize-images', payload);
 
 // ─── Image Path Normalizer ────────────────────────────────────────────────────
 export const formatImagePath = (path) => {
@@ -349,62 +384,65 @@ export const formatImagePath = (path) => {
 // ─── Dataset (Known Persons) ──────────────────────────────────────────────────
 export const fetchDatasetImages = (folder = '') => {
   const q = folder ? `?folder=${encodeURIComponent(folder)}` : '';
-  return apiGet(`/api/v1/admin/dataset/images${q}`);
+  return apiGet(`${API}/dataset/images${q}`);
 };
 
 export const deleteDatasetImage = (path, folder = '') =>
-  apiPost('/api/v1/admin/dataset/delete-image', { path, ...(folder && { folder }) });
+  apiPost(API + '/dataset/delete-image', { path, ...(folder && { folder }) });
 
 export const deleteDatasetPerson = (name, folder = '') =>
-  apiPost('/api/v1/admin/dataset/delete-person', { name, ...(folder && { folder }) });
+  apiPost(API + '/dataset/delete-person', { name, ...(folder && { folder }) });
 
 export const deleteDatasetAll = (folder = '') =>
-  apiPost('/api/v1/admin/dataset/delete-all', folder ? { folder } : {});
+  apiPost(API + '/dataset/delete-all', folder ? { folder } : {});
 
 export const trainDataset = (folder = '') =>
-  apiPost('/api/v1/admin/dataset/train', folder ? { folder } : {});
+  apiPost(API + '/dataset/train', folder ? { folder } : {});
 
 export const syncTrainDataset = (folder = '') =>
-  apiPost('/api/v1/admin/dataset/sync-train', folder ? { folder } : {});
+  apiPost(API + '/dataset/sync-train', folder ? { folder } : {});
 
 export const fetchDatasetServerCollections = () =>
-  apiGet('/api/v1/admin/dataset/server/collections');
+  apiGet(API + '/dataset/server/collections');
 
 export const fetchDatasetServerFaces = (collectionId = '') => {
   const q = collectionId ? `?collection_id=${encodeURIComponent(collectionId)}` : '';
-  return apiGet(`/api/v1/admin/dataset/server/faces${q}`);
+  return apiGet(`${API}/dataset/server/faces${q}`);
 };
 
 export const deleteDatasetServerCollection = (collectionId = '') =>
-  apiPost('/api/v1/admin/dataset/server/delete-collection', collectionId ? { collection_id: collectionId } : {});
+  apiPost(API + '/dataset/server/delete-collection', collectionId ? { collection_id: collectionId } : {});
 
 export const deleteDatasetServerFace = (faceId, collectionId = '') =>
-  apiPost('/api/v1/admin/dataset/server/delete-face', { face_id: faceId, ...(collectionId && { collection_id: collectionId }) });
+  apiPost(API + '/dataset/server/delete-face', { face_id: faceId, ...(collectionId && { collection_id: collectionId }) });
 
 export const fetchDuplicatesPendingCount = (folder = '') =>
-  apiGet(`/api/v1/admin/duplicate-reviews/pending/count?folder=${encodeURIComponent(folder)}`);
+  apiGet(`${API}/duplicate-reviews/pending/count?folder=${encodeURIComponent(folder)}`);
 
 export const fetchDuplicatesPending = (folder = '') =>
-  apiGet(`/api/v1/admin/duplicate-reviews/pending?folder=${encodeURIComponent(folder)}`);
+  apiGet(`${API}/duplicate-reviews/pending?folder=${encodeURIComponent(folder)}`);
+
+export const resolveDuplicateReview = (reviewId, resolution = 'ignored') =>
+  apiPost(`${API}/duplicate-reviews/${reviewId}/resolve`, { resolution });
 
 // ─── Unknown Dataset ──────────────────────────────────────────────────────────
 export const fetchUnknownDatasetImages = () =>
-  apiGet('/api/v1/admin/unknowns/dataset/images');
+  apiGet(API + '/unknowns/dataset/images');
 
 export const deleteUnknownDatasetImage = (path) =>
-  apiPost('/api/v1/admin/unknowns/dataset/delete-image', { path });
+  apiPost(API + '/unknowns/dataset/delete-image', { path });
 
 export const trainUnknownDataset = () =>
-  apiPost('/api/v1/admin/unknowns/dataset/train');
+  apiPost(API + '/unknowns/dataset/train');
 
 export const deleteAllUnknownDataset = () =>
-  apiPost('/api/v1/admin/unknowns/dataset/delete-all');
+  apiPost(API + '/unknowns/dataset/delete-all');
 
 export const fetchUnknownServerFaces = () =>
-  apiGet('/api/v1/admin/unknowns/dataset/server/faces');
+  apiGet(API + '/unknowns/dataset/server/faces');
 
 export const deleteUnknownServerFace = (faceId) =>
-  apiPost('/api/v1/admin/unknowns/dataset/server/delete-face', { face_id: faceId });
+  apiPost(API + '/unknowns/dataset/server/delete-face', { face_id: faceId });
 
 export const deleteUnknownServerFaces = (faceIds) =>
-  apiPost('/api/v1/admin/unknowns/dataset/server/delete-faces', { face_ids: faceIds });
+  apiPost(API + '/unknowns/dataset/server/delete-faces', { face_ids: faceIds });

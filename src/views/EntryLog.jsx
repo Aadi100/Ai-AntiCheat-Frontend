@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
+import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import { fetchDetectionsPaginated } from '../utils/api';
 
@@ -75,6 +76,12 @@ export const EntryLog = () => {
 
   return (
     <div>
+      <PageHeader
+        title="Entry Log"
+        description="Chronological record of every detection session across all camera zones."
+        badge={`${totalRecords} total`}
+      />
+
       {/* Filter Bar */}
       <div className="filter-bar" style={{ marginBottom: '14px' }}>
         <button
