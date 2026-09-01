@@ -36,6 +36,35 @@ export function clearTokens() {
   localStorage.removeItem(REFRESH_TOKEN_KEY);
 }
 
+// ─── Tenant context (role / org_id / branch_ids from /login) ──────────────────
+// org_id is null for a Super Admin (unrestricted); branch_ids is populated
+// only for a Branch User. Persisted so it survives a page reload.
+const ROLE_KEY = 'role';
+const ORG_ID_KEY = 'org_id';
+const BRANCH_IDS_KEY = 'branch_ids';
+
+export function setAuthContext({ role, org_id, branch_ids } = {}) {
+  if (role) localStorage.setItem(ROLE_KEY, role);
+  localStorage.setItem(ORG_ID_KEY, org_id || '');
+  localStorage.setItem(BRANCH_IDS_KEY, JSON.stringify(Array.isArray(branch_ids) ? branch_ids : []));
+}
+
+export function getAuthContext() {
+  let branchIds = [];
+  try { branchIds = JSON.parse(localStorage.getItem(BRANCH_IDS_KEY) || '[]'); } catch (e) { /* ignore */ }
+  return {
+    role: localStorage.getItem(ROLE_KEY) || '',
+    orgId: localStorage.getItem(ORG_ID_KEY) || '',
+    branchIds
+  };
+}
+
+export function clearAuthContext() {
+  localStorage.removeItem(ROLE_KEY);
+  localStorage.removeItem(ORG_ID_KEY);
+  localStorage.removeItem(BRANCH_IDS_KEY);
+}
+
 function authHeaders(extra = {}) {
   return {
     'Authorization': `Bearer ${getToken()}`,
@@ -104,7 +133,14 @@ async function doFetch(method, path, { body, isForm, isRetry } = {}) {
     const fetchOpts = { method, headers };
     if (body !== undefined) {
       fetchOpts.body = isForm
-        ? (() => { const f = new FormData(); Object.entries(body).forEach(([k, v]) => f.append(k, v)); return f; })()
+        ? (() => {
+            const f = new FormData();
+            Object.entries(body).forEach(([k, v]) => {
+              if (Array.isArray(v)) v.forEach(item => f.append(k, item));
+              else f.append(k, v);
+            });
+            return f;
+          })()
         : JSON.stringify(body);
     }
 
@@ -160,15 +196,26 @@ export const authRefresh = async () => {
 export const authLogout = () =>
   apiPost(API + '/logout');
 
+// Many GET routes now require branch_id as a query param. Fail fast locally
+// with the same error shape the server would give, instead of round-tripping.
+const MISSING_BRANCH_ID_QUERY = { ok: false, status: 400, data: { response_code: 'CODE_MISSING_PARAMETERS', response_message: 'Missing parameter(s): branch_id' } };
+const MISSING_ORG_ID_QUERY = { ok: false, status: 400, data: { response_code: 'CODE_MISSING_PARAMETERS', response_message: 'Missing parameter(s): org_id' } };
+
 // ─── Dashboard Stats ─────────────────────────────────────────────────────────
-export const fetchDashboardStats = () =>
-  apiGet(API + '/detections/dashboard-stats');
+export const fetchDashboardStats = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/detections/dashboard-stats?branch_id=${branchId}`);
+};
 
-export const fetchAnalytics = () =>
-  apiGet(API + '/detections/analytics');
+export const fetchAnalytics = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/detections/analytics?branch_id=${branchId}`);
+};
 
-export const fetchDashboard = (recentLimit = 10, violationsLimit = 6, topLocationsLimit = 5) => {
+export const fetchDashboard = (branchId, recentLimit = 10, violationsLimit = 6, topLocationsLimit = 5) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
   const params = new URLSearchParams({
+    branch_id: branchId,
     recent_limit: recentLimit,
     violations_limit: violationsLimit,
     top_locations_limit: topLocationsLimit
@@ -177,42 +224,51 @@ export const fetchDashboard = (recentLimit = 10, violationsLimit = 6, topLocatio
 };
 
 // ─── Entry Log / Detections ───────────────────────────────────────────────────
-export const fetchDetectionsPaginated = (page = 1, perPage = 20, filter = null) => {
-  const params = new URLSearchParams({ page, per_page: perPage });
+export const fetchDetectionsPaginated = (branchId, page = 1, perPage = 20, filter = null) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId, page, per_page: perPage });
   if (filter) params.append('filter', filter);
   return apiGet(`${API}/detections/sessions?${params}`);
 };
 
-export const fetchDetectionSessions = (page = 1, perPage = 20) => {
-  const params = new URLSearchParams({ page, per_page: perPage });
+export const fetchDetectionSessions = (branchId, page = 1, perPage = 20) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId, page, per_page: perPage });
   return apiGet(`${API}/detections/sessions?${params}`);
 };
 
 // ─── Alerts ──────────────────────────────────────────────────────────────────
-export const fetchAlerts = (page = 1, perPage = 20) => {
-  const params = new URLSearchParams({ page, per_page: perPage });
+export const fetchAlerts = (branchId, page = 1, perPage = 20) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId, page, per_page: perPage });
   return apiGet(`${API}/alerts/paginated?${params}`);
 };
 
-export const fetchAlertsLatest = (since = 0, limit = 20) =>
-  apiGet(`${API}/alerts/latest?since=${since}&limit=${limit}`);
+export const fetchAlertsLatest = (branchId, since = 0, limit = 20) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/alerts/latest?branch_id=${branchId}&since=${since}&limit=${limit}`);
+};
 
-export const fetchAlertsBreakdown = () =>
-  apiGet(API + '/alerts/breakdown');
+export const fetchAlertsBreakdown = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/alerts/breakdown?branch_id=${branchId}`);
+};
 
-export const fetchAlertsTopLocations = () =>
-  apiGet(API + '/alerts/top-locations');
+export const fetchAlertsTopLocations = (branchId, limit) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/alerts/top-locations?branch_id=${branchId}${limit ? `&limit=${limit}` : ''}`);
+};
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
-export const fetchPersons = (filters = {}) => {
-  const params = new URLSearchParams(filters);
+export const fetchPersons = (branchId, filters = {}) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ ...filters, branch_id: branchId });
   return apiGet(`${API}/persons/read?${params}`);
 };
 
 // GET /persons/read only supports name / role / enrollment_id filters — there is
 // no server-side id lookup, so callers fetch the full list and find client-side.
-export const fetchPerson = () =>
-  apiGet(API + '/persons/read');
+export const fetchPerson = (branchId) => fetchPersons(branchId);
 
 export const createPerson = (body) =>
   apiPost(API + '/persons/create', body);
@@ -223,18 +279,23 @@ export const updatePerson = (body) =>
 export const suspendPerson = (id) =>
   apiPost(API + '/persons/suspend', { id });
 
-export const fetchPersonsExpiringSoon = (days = 7) =>
-  apiGet(`${API}/persons/expiring-soon?days=${days}`);
+export const fetchPersonsExpiringSoon = (branchId, days = 7) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/persons/expiring-soon?branch_id=${branchId}&days=${days}`);
+};
 
-export const fetchPersonsRoleCounts = () =>
-  apiGet(API + '/persons/role-counts');
+export const fetchPersonsRoleCounts = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/persons/role-counts?branch_id=${branchId}`);
+};
 
 export const fetchPersonsExcluded = () =>
   apiGet(API + '/persons/excluded');
 
 // ─── Unknown Persons ─────────────────────────────────────────────────────────
-export const fetchUnknowns = (page = 1, perPage = 24) => {
-  const params = new URLSearchParams({ page, per_page: perPage });
+export const fetchUnknowns = (branchId, page = 1, perPage = 24) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId, page, per_page: perPage });
   return apiGet(`${API}/unknowns/paginated?${params}`);
 };
 
@@ -260,8 +321,10 @@ export const processUnknownSighting = (body) =>
   apiPost(API + '/unknowns/process-sighting', body);
 
 // ─── Cameras ─────────────────────────────────────────────────────────────────
-export const fetchCameras = () =>
-  apiGet(API + '/cameras/list');
+export const fetchCameras = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/cameras/list?branch_id=${branchId}`);
+};
 
 export const createCamera = (body) =>
   apiPost(API + '/cameras/create', body);
@@ -270,43 +333,30 @@ export const updateCamera = (body) =>
   apiPut(API + '/cameras/update', body);
 
 export const suspendCamera = (id) =>
-  apiPost(API + '/cameras/suspend', { id });
+  apiPost(API + '/cameras/suspend', { _id: id });
 
 export const setCameraRoi = (id, roi) =>
   apiPost(`${API}/cameras/${id}/roi`, { roi });
 
-export const startCamera = (cameraId) =>
-  apiPost(`${API}/cameras/${cameraId}/start`);
-
-export const stopCamera = (cameraId) =>
-  apiPost(`${API}/cameras/${cameraId}/stop`);
-
-// ─── Grab / Detection Pipeline ───────────────────────────────────────────────
-export const grabCamera = (cameraId) =>
-  apiPost(`${API}/grabs/${cameraId}/grab`);
-
-export const captureCamera = (cameraId) =>
-  apiPost(`${API}/grabs/${cameraId}/capture`);
-
-export const grabStatus = (cameraId) =>
-  apiGet(`${API}/grabs/${cameraId}/status`);
-
 // ─── Billing / Invoices ───────────────────────────────────────────────────────
-export const fetchInvoices = (status = '') => {
-  const q = status ? `?status=${status}` : '';
-  return apiGet(`${API}/invoices/read${q}`);
+export const fetchInvoices = (branchId, status = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId });
+  if (status) params.append('status', status);
+  return apiGet(`${API}/invoices/read?${params}`);
 };
 
-export const computeBilling = (year = '', monthNum = '') => {
+export const computeBilling = (year = '', monthNum = '', branchId = '') => {
   const params = {};
   if (year) params.year = year;
   if (monthNum) params.month_num = monthNum;
+  if (branchId) params.branch_id = branchId;
   const q = new URLSearchParams(params).toString();
   return apiGet(`${API}/invoices/compute${q ? `?${q}` : ''}`);
 };
 
-export const generateInvoice = (year, monthNum) =>
-  apiPost(API + '/invoices/generate', { year, month_num: monthNum });
+export const generateInvoice = (year, monthNum, branchId = '') =>
+  apiPost(API + '/invoices/generate', { year, month_num: monthNum, ...(branchId && { branch_id: branchId }) });
 
 export const markInvoicePaid = (monthId) =>
   apiPost(`${API}/invoices/${monthId}/mark-paid`);
@@ -314,30 +364,40 @@ export const markInvoicePaid = (monthId) =>
 export const markInvoiceUnpaid = (monthId) =>
   apiPost(`${API}/invoices/${monthId}/mark-unpaid`);
 
-export const backfillInvoices = () =>
-  apiPost(API + '/invoices/ensure-past-months');
+export const backfillInvoices = (branchId = '') =>
+  apiPost(API + '/invoices/ensure-past-months', branchId ? { branch_id: branchId } : {});
 
 // ─── Settings ─────────────────────────────────────────────────────────────────
-export const fetchSettings = () =>
-  apiGet(API + '/settings');
+export const fetchSettings = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/settings?branch_id=${branchId}`);
+};
 
-export const fetchRecognitionOptions = () =>
-  apiGet(API + '/settings/recognition-options');
+export const fetchRecognitionOptions = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/settings/recognition-options?branch_id=${branchId}`);
+};
 
-export const saveSettings = (body) =>
-  apiPost(API + '/settings/save', body);
+export const saveSettings = (body, branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiPost(API + '/settings/save', { ...body, branch_id: branchId });
+};
 
-export const saveMatchSettings = (body) =>
-  apiPost(API + '/settings/save-match', body);
+export const saveMatchSettings = (body, branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiPost(API + '/settings/save-match', { ...body, branch_id: branchId });
+};
 
+// Deliberately global — no branch_id, Super Admin only.
 export const flushDatabase = () =>
   apiPost(API + '/settings/flush-database');
 
 
 
 // ─── Reports ──────────────────────────────────────────────────────────────────
-export const fetchReport = (params = {}) => {
-  const q = new URLSearchParams(params);
+export const fetchReport = (branchId, params = {}) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const q = new URLSearchParams({ ...params, branch_id: branchId });
   return apiGet(`${API}/reports?${q}`);
 };
 
@@ -349,8 +409,49 @@ export const clearConsoleLog = () =>
   apiPost('/console-log/clear');
 
 // ─── Server Usage ─────────────────────────────────────────────────────────────
-export const fetchServerUsage = (days = 30) =>
-  apiGet(`${API}/server-usage?days=${days}`);
+export const fetchServerUsage = (days = 30, branchId = '') =>
+  apiGet(`${API}/server-usage?days=${days}${branchId ? `&branch_id=${branchId}` : ''}`);
+
+// ─── Users ──────────────────────────────────────────────────────────────────
+export const fetchUsers = () =>
+  apiGet(API + '/users/read');
+
+export const createUser = (body) =>
+  apiPost(API + '/users/create', body);
+
+export const updateUser = (body) =>
+  apiPut(API + '/users/update', body);
+
+export const suspendUser = (id) =>
+  apiPost(API + '/users/suspend', { id });
+
+// ─── Organizations ────────────────────────────────────────────────────────────
+export const fetchOrganizations = () =>
+  apiGet(API + '/organizations/read');
+
+export const createOrganization = (body) =>
+  apiPost(API + '/organizations/create', body);
+
+export const updateOrganization = (body) =>
+  apiPut(API + '/organizations/update', body);
+
+export const suspendOrganization = (id) =>
+  apiPost(API + '/organizations/suspend', { id });
+
+// ─── Branches ─────────────────────────────────────────────────────────────────
+export const fetchBranches = (orgId) => {
+  if (!orgId) return Promise.resolve(MISSING_ORG_ID_QUERY);
+  return apiGet(`${API}/branches/read?org_id=${orgId}`);
+};
+
+export const createBranch = (body) =>
+  apiPost(API + '/branches/create', body);
+
+export const updateBranch = (body) =>
+  apiPut(API + '/branches/update', body);
+
+export const suspendBranch = (id) =>
+  apiPost(API + '/branches/suspend', { id });
 
 // ─── Recognize Images ──────────────────────────────────────────────────────────
 export const recognizeImages = (payload) =>
@@ -381,46 +482,101 @@ export const formatImagePath = (path) => {
   return '/media/' + normalized;
 };
 
+// branch_id is now required by the backend — fail fast locally with the same
+// error shape the server would return, instead of round-tripping for a 4000.
+const MISSING_BRANCH_ID = { ok: false, status: 400, data: { response_code: 4000, response_message: 'Missing parameter(s): branch_id' } };
+
 // ─── Dataset (Known Persons) ──────────────────────────────────────────────────
-export const fetchDatasetImages = (folder = '') => {
-  const q = folder ? `?folder=${encodeURIComponent(folder)}` : '';
-  return apiGet(`${API}/dataset/images${q}`);
+// folder is no longer accepted — the backend auto-resolves it from that
+// branch's own Settings (camera_dataset_dir).
+export const fetchDatasetImages = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/dataset/images?branch_id=${branchId}`);
 };
 
-export const deleteDatasetImage = (path, folder = '') =>
-  apiPost(API + '/dataset/delete-image', { path, ...(folder && { folder }) });
-
-export const deleteDatasetPerson = (name, folder = '') =>
-  apiPost(API + '/dataset/delete-person', { name, ...(folder && { folder }) });
-
-export const deleteDatasetAll = (folder = '') =>
-  apiPost(API + '/dataset/delete-all', folder ? { folder } : {});
-
-export const trainDataset = (folder = '') =>
-  apiPost(API + '/dataset/train', folder ? { folder } : {});
-
-export const syncTrainDataset = (folder = '') =>
-  apiPost(API + '/dataset/sync-train', folder ? { folder } : {});
-
-export const fetchDatasetServerCollections = () =>
-  apiGet(API + '/dataset/server/collections');
-
-export const fetchDatasetServerFaces = (collectionId = '') => {
-  const q = collectionId ? `?collection_id=${encodeURIComponent(collectionId)}` : '';
-  return apiGet(`${API}/dataset/server/faces${q}`);
+export const deleteDatasetImage = (path, branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/delete-local-image', { path, branch_id: branchId });
 };
 
-export const deleteDatasetServerCollection = (collectionId = '') =>
-  apiPost(API + '/dataset/server/delete-collection', collectionId ? { collection_id: collectionId } : {});
+export const deleteDatasetPerson = (name, branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/delete-person', { name, branch_id: branchId });
+};
 
-export const deleteDatasetServerFace = (faceId, collectionId = '') =>
-  apiPost(API + '/dataset/server/delete-face', { face_id: faceId, ...(collectionId && { collection_id: collectionId }) });
+export const deleteDatasetAll = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/delete-local', { branch_id: branchId });
+};
 
-export const fetchDuplicatesPendingCount = (folder = '') =>
-  apiGet(`${API}/duplicate-reviews/pending/count?folder=${encodeURIComponent(folder)}`);
+export const trainDataset = (branchId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/train', { branch_id: branchId });
+};
 
-export const fetchDuplicatesPending = (folder = '') =>
-  apiGet(`${API}/duplicate-reviews/pending?folder=${encodeURIComponent(folder)}`);
+export const syncTrainDataset = (branchId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/sync-train', { branch_id: branchId });
+};
+
+// Multipart upload — search the server face collection. images and branch_id
+// are both required by the backend now; it checks images first, so mirror
+// that order locally rather than guessing which error the server would give.
+export const datasetRecognize = (files, branchId = '') => {
+  if (!files || files.length === 0) {
+    return Promise.resolve({ ok: false, status: 400, data: { response_message: 'Please select at least one image.' } });
+  }
+  if (!branchId) {
+    return Promise.resolve({ ok: false, status: 400, data: { response_message: "'branch_id' is required." } });
+  }
+  return apiPost(API + '/dataset/recognize', { images: files, branch_id: branchId }, true);
+};
+
+export const fetchDatasetServerCollections = (branchId) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  return apiGet(`${API}/dataset/server/collections?branch_id=${branchId}`);
+};
+
+export const fetchDatasetServerFaces = (branchId, collectionId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId });
+  if (collectionId) params.append('collection_id', collectionId);
+  return apiGet(`${API}/dataset/server/faces?${params}`);
+};
+
+export const deleteDatasetServerCollection = (branchId, collectionId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/server/delete-collection', { branch_id: branchId, ...(collectionId && { collection_id: collectionId }) });
+};
+
+export const deleteDatasetServerCollections = (branchId, collectionIds = []) => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/server/delete-collections', { branch_id: branchId, collection_ids: collectionIds });
+};
+
+export const deleteDatasetServerFace = (branchId, faceId, collectionId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/server/delete-face', { branch_id: branchId, face_id: faceId, ...(collectionId && { collection_id: collectionId }) });
+};
+
+export const deleteDatasetServerFaces = (branchId, faceIds = [], collectionId = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
+  return apiPost(API + '/dataset/server/delete-faces', { branch_id: branchId, face_ids: faceIds, ...(collectionId && { collection_id: collectionId }) });
+};
+
+export const fetchDuplicatesPendingCount = (branchId, folder = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId });
+  if (folder) params.append('folder', folder);
+  return apiGet(`${API}/duplicate-reviews/pending/count?${params}`);
+};
+
+export const fetchDuplicatesPending = (branchId, folder = '') => {
+  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
+  const params = new URLSearchParams({ branch_id: branchId });
+  if (folder) params.append('folder', folder);
+  return apiGet(`${API}/duplicate-reviews/pending?${params}`);
+};
 
 export const resolveDuplicateReview = (reviewId, resolution = 'ignored') =>
   apiPost(`${API}/duplicate-reviews/${reviewId}/resolve`, { resolution });

@@ -22,7 +22,8 @@ export const DashboardOverview = () => {
   const {
     openCardModal,
     openLightbox,
-    runBackgroundCameraDiagnostic
+    runBackgroundCameraDiagnostic,
+    defaultBranchId
   } = useApp();
 
   const [dashboardData, setDashboardData] = useState(null);
@@ -117,7 +118,7 @@ export const DashboardOverview = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchDashboard(10, 6, 5);
+      const res = await fetchDashboard(defaultBranchId, 10, 6, 5);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           setDashboardData(res.data.response_data);
@@ -144,7 +145,7 @@ export const DashboardOverview = () => {
 
   useEffect(() => {
     getDashboardData();
-  }, []);
+  }, [defaultBranchId]);
 
   if (loading) {
     return (

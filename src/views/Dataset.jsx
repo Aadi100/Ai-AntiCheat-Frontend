@@ -24,7 +24,7 @@ const groupImagesByName = (paths) => {
    Merged Dataset Page  (Known Persons  ·  Unknown Captures)
 ───────────────────────────────────────────────────────────── */
 export const Dataset = () => {
-  const { setConsoleLogs } = useApp();
+  const { setConsoleLogs, defaultBranchId, selectedOrgId } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const mainTab = searchParams.get('tab') || 'known'; // 'known' | 'unknown'
   const setMainTab = (t) => setSearchParams({ tab: t });
@@ -50,8 +50,8 @@ export const Dataset = () => {
     setKnownError('');
     try {
       const [imgRes, countRes] = await Promise.all([
-        api.fetchDatasetImages(folder),
-        api.fetchDuplicatesPendingCount(folder),
+        api.fetchDatasetImages(defaultBranchId),
+        api.fetchDuplicatesPendingCount(defaultBranchId, folder),
       ]);
       if (imgRes.ok) {
         const raw = imgRes.data?.response_data;
@@ -66,47 +66,66 @@ export const Dataset = () => {
     } finally {
       setKnownLoading(false);
     }
-  }, [folder]);
+  }, [folder, defaultBranchId]);
 
   const loadCollections = useCallback(async () => {
     setKnownLoading(true);
+    setKnownError('');
     try {
-      const res = await api.fetchDatasetServerCollections();
+      const res = await api.fetchDatasetServerCollections(defaultBranchId);
       if (res.ok) {
         const cols = res.data?.response_data?.collections || res.data?.response_data || [];
         setCollections(cols);
         // Use functional updater to avoid stale closure loop
         setSelectedCollection(prev => prev || cols[0]?.collection_id || cols[0] || '');
+      } else {
+        setCollections([]);
+        setKnownError(res.data?.response_message || 'Failed to load server collections.');
       }
-    } catch (e) { /* silent */ } finally { setKnownLoading(false); }
-  }, []);
+    } catch (e) {
+      setCollections([]);
+      setKnownError(`Network error: ${e.message}`);
+    } finally {
+      setKnownLoading(false);
+    }
+  }, [defaultBranchId]);
 
   const loadServerFaces = useCallback(async () => {
     setKnownLoading(true);
+    setKnownError('');
     try {
-      const res = await api.fetchDatasetServerFaces(selectedCollection);
+      const res = await api.fetchDatasetServerFaces(defaultBranchId, selectedCollection);
       if (res.ok) setServerFaces(res.data?.response_data?.faces || res.data?.response_data || []);
-    } catch (e) { /* silent */ } finally { setKnownLoading(false); }
-  }, [selectedCollection]);
+      else { setServerFaces([]); setKnownError(res.data?.response_message || 'Failed to load server faces.'); }
+    } catch (e) {
+      setServerFaces([]);
+      setKnownError(`Network error: ${e.message}`);
+    } finally { setKnownLoading(false); }
+  }, [selectedCollection, defaultBranchId]);
 
   const loadDuplicates = useCallback(async () => {
     setKnownLoading(true);
+    setKnownError('');
     try {
-      const res = await api.fetchDuplicatesPending(folder);
+      const res = await api.fetchDuplicatesPending(defaultBranchId, folder);
       if (res.ok) setDuplicates(res.data?.response_data?.reviews || res.data?.response_data || []);
-    } catch (e) { /* silent */ } finally { setKnownLoading(false); }
-  }, [folder]);
+      else { setDuplicates([]); setKnownError(res.data?.response_message || 'Failed to load duplicate reviews.'); }
+    } catch (e) {
+      setDuplicates([]);
+      setKnownError(`Network error: ${e.message}`);
+    } finally { setKnownLoading(false); }
+  }, [folder, defaultBranchId]);
 
   useEffect(() => {
     if (mainTab !== 'known') return;
     if (knownSubTab === 'images') loadKnownImages();
     else if (knownSubTab === 'server') loadCollections();
     else if (knownSubTab === 'duplicates') loadDuplicates();
-  }, [mainTab, knownSubTab, folder]);
+  }, [mainTab, knownSubTab, folder, defaultBranchId]);
 
   useEffect(() => {
     if (mainTab === 'known' && knownSubTab === 'server' && selectedCollection) loadServerFaces();
-  }, [selectedCollection]);
+  }, [selectedCollection, defaultBranchId]);
 
   const doKnownAction = async (label, fn, reload = true) => {
     setActionLoading(true);
@@ -141,6 +160,8 @@ export const Dataset = () => {
   const [convertType, setConvertType] = useState('new');
   const [newName, setNewName] = useState('');
   const [newRole, setNewRole] = useState('member');
+  const [newBranchId, setNewBranchId] = useState('');
+  const [branches, setBranches] = useState([]);
   const [existingPersonId, setExistingPersonId] = useState('');
 
   /* — Local raw images — */
@@ -161,7 +182,7 @@ export const Dataset = () => {
     setUnknownLoading(true);
     setUnknownError('');
     try {
-      const [unkRes, perRes] = await Promise.all([api.fetchUnknowns(1, 100), api.fetchPersons()]);
+      const [unkRes, perRes] = await Promise.all([api.fetchUnknowns(defaultBranchId, 1, 100), api.fetchPersons(defaultBranchId)]);
       if (unkRes.ok) setUnknownList(unkRes.data?.response_data?.data || []);
       else setUnknownError(unkRes.data?.response_message || 'Failed to load unknowns.');
       if (perRes.ok) {
@@ -175,7 +196,7 @@ export const Dataset = () => {
     } finally {
       setUnknownLoading(false);
     }
-  }, []);
+  }, [defaultBranchId]);
 
   const loadUnknownImages = useCallback(async () => {
     setUnkImgLoading(true);
@@ -220,6 +241,21 @@ export const Dataset = () => {
     else if (unkSubTab === 'server') loadUnknownServerFaces();
   }, [mainTab, unkSubTab]);
 
+  // Branches — /persons/create now requires a branch_id
+  useEffect(() => {
+    const loadBranches = async () => {
+      try {
+        const res = await api.fetchBranches(selectedOrgId);
+        if (res.ok) {
+          const list = res.data?.response_data || [];
+          setBranches(list);
+          setNewBranchId(prev => prev || defaultBranchId || (list[0]?._id || list[0]?.id) || '');
+        }
+      } catch (e) { /* silent — create will surface a 403 if branch_id is missing */ }
+    };
+    loadBranches();
+  }, [defaultBranchId, selectedOrgId]);
+
   /* ── Unknown actions ── */
   const doUnkAction = async (label, fn, reloadFn) => {
     setUnkActionLoading(true);
@@ -254,7 +290,8 @@ export const Dataset = () => {
       let success = false;
       if (convertType === 'new') {
         if (!newName.trim()) return;
-        const r = await api.createPerson({ name: newName, role: newRole, photo_path: trainTarget.photo_path });
+        if (!newBranchId) { alert('Branch is required.'); return; }
+        const r = await api.createPerson({ name: newName, role: newRole, branch_id: newBranchId, photo_path: trainTarget.photo_path });
         success = r.ok;
         if (!r.ok) { alert(r.data?.response_message || 'Failed to enroll.'); return; }
       } else {
@@ -361,6 +398,16 @@ export const Dataset = () => {
                     <option value="staff">Staff</option>
                   </select>
                 </div>
+                <div className="form-group" style={{ marginBottom: 0 }}>
+                  <label className="form-label" style={{ fontSize: '12px' }}>Branch *</label>
+                  <select className="form-select" value={newBranchId} onChange={e => setNewBranchId(e.target.value)} required>
+                    {branches.length > 0 ? (
+                      branches.map(b => <option key={b._id || b.id} value={b._id || b.id}>{b.name}</option>)
+                    ) : (
+                      <option value="">No branches available</option>
+                    )}
+                  </select>
+                </div>
               </>
             ) : (
               <div className="form-group" style={{ marginBottom: 0 }}>
@@ -422,16 +469,23 @@ export const Dataset = () => {
 
           {/* Action toolbar (images sub-tab only) */}
           {knownSubTab === 'images' && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
-              <button className="btn btn-sm btn-primary" disabled={actionLoading} onClick={() => doKnownAction('Local train', () => api.trainDataset(folder))}>
-                ⚡ Train Local
-              </button>
-              <button className="btn btn-sm" disabled={actionLoading} style={{ background: 'var(--bg3)', border: '1px solid var(--border)' }} onClick={() => doKnownAction('Sync & Train', () => api.syncTrainDataset(folder))}>
-                ☁ Sync & Train
-              </button>
-              <button className="btn btn-sm btn-danger" disabled={actionLoading} onClick={() => { if (window.confirm('Delete ALL local dataset images? This cannot be undone.')) doKnownAction('Delete all local', () => api.deleteDatasetAll(folder)); }}>
-                🗑 Delete All Local
-              </button>
+            <div style={{ marginBottom: '20px' }}>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+                <button className="btn btn-sm btn-primary" disabled={actionLoading || !defaultBranchId} title={!defaultBranchId ? 'Select a branch first' : undefined} onClick={() => doKnownAction('Local train', () => api.trainDataset(defaultBranchId))}>
+                  ⚡ Train Local
+                </button>
+                <button className="btn btn-sm" disabled={actionLoading || !defaultBranchId} title={!defaultBranchId ? 'Select a branch first' : undefined} style={{ background: 'var(--bg3)', border: '1px solid var(--border)' }} onClick={() => doKnownAction('Sync & Train', () => api.syncTrainDataset(defaultBranchId))}>
+                  ☁ Sync & Train
+                </button>
+                <button className="btn btn-sm btn-danger" disabled={actionLoading} onClick={() => { if (window.confirm('Delete ALL local dataset images? This cannot be undone.')) doKnownAction('Delete all local', () => api.deleteDatasetAll(defaultBranchId)); }}>
+                  🗑 Delete All Local
+                </button>
+              </div>
+              {!defaultBranchId && (
+                <div className="text-muted" style={{ fontSize: '11px', marginTop: '6px' }}>
+                  Training now requires a branch — use "Switch Branch" in the sidebar to select one.
+                </div>
+              )}
             </div>
           )}
 
@@ -458,7 +512,7 @@ export const Dataset = () => {
                           <div style={{ fontSize: '12px', fontWeight: '700', textAlign: 'center', wordBreak: 'break-word' }}>{name}</div>
                           {imgs.length > 1 && <div style={{ fontSize: '10px', color: 'var(--fg3)' }}>{imgs.length} photos</div>}
                           <button className="btn btn-sm btn-danger" style={{ fontSize: '10px', padding: '3px 8px' }}
-                            onClick={() => { if (window.confirm(`Delete all images for "${name}"?`)) doKnownAction(`Delete person ${name}`, () => api.deleteDatasetPerson(name, folder)); }}>
+                            onClick={() => { if (window.confirm(`Delete all images for "${name}"?`)) doKnownAction(`Delete person ${name}`, () => api.deleteDatasetPerson(name, defaultBranchId)); }}>
                             Delete Person
                           </button>
                         </div>
@@ -485,7 +539,7 @@ export const Dataset = () => {
                     </select>
                     <button className="btn btn-sm" onClick={loadServerFaces}>Load Faces</button>
                     <button className="btn btn-sm btn-danger" disabled={!selectedCollection}
-                      onClick={() => { if (window.confirm(`Delete collection "${selectedCollection}"?`)) doKnownAction('Delete collection', () => api.deleteDatasetServerCollection(selectedCollection), false); }}>
+                      onClick={() => { if (window.confirm(`Delete collection "${selectedCollection}"?`)) doKnownAction('Delete collection', () => api.deleteDatasetServerCollection(defaultBranchId, selectedCollection), false); }}>
                       Delete Collection
                     </button>
                   </div>
@@ -500,7 +554,7 @@ export const Dataset = () => {
                             </div>
                             <div style={{ fontSize: '11px', color: 'var(--fg2)', wordBreak: 'break-all', textAlign: 'center' }}>{fid}</div>
                             <button className="btn btn-sm btn-danger" style={{ fontSize: '10px', padding: '3px 8px' }}
-                              onClick={() => { if (window.confirm('Remove this face?')) doKnownAction('Delete server face', () => api.deleteDatasetServerFace(fid, selectedCollection), false); }}>
+                              onClick={() => { if (window.confirm('Remove this face?')) doKnownAction('Delete server face', () => api.deleteDatasetServerFace(defaultBranchId, fid, selectedCollection), false); }}>
                               Remove
                             </button>
                           </div>

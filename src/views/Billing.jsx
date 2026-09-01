@@ -47,7 +47,8 @@ const brandLabel = (brand) => ({ visa: 'VISA', mastercard: 'MC', amex: 'AMEX', d
 export const Billing = () => {
   const {
     billingSummary,
-    setBillingSummary
+    setBillingSummary,
+    defaultBranchId
   } = useApp();
 
   const [searchParams] = useSearchParams();
@@ -82,10 +83,10 @@ export const Billing = () => {
       setLoading(true);
       setError(null);
 
-      // Fetch past invoices
-      const invRes = await fetchInvoices();
-      // Compute current bill
-      const compRes = await computeBilling();
+      // Invoice history and the computed current bill are both scoped to the
+      // app's currently selected branch.
+      const invRes = await fetchInvoices(defaultBranchId);
+      const compRes = await computeBilling('', '', defaultBranchId);
 
       if (invRes.ok && compRes.ok) {
         if (invRes.data && compRes.data) {
@@ -107,7 +108,7 @@ export const Billing = () => {
 
   useEffect(() => {
     loadBillingData();
-  }, []);
+  }, [defaultBranchId]);
 
   // Find invoice for checkout
   const rawCheckoutInvoice = invoiceList.find(i => (i.month || i.id || i._id) === monthId) || {
@@ -176,9 +177,9 @@ export const Billing = () => {
       const monthNum = parseInt(monthStr);
       
       setBannerMsg('Generating statement and backfilling months...');
-      
-      const resGen = await generateInvoice(year, monthNum);
-      const resBack = await backfillInvoices();
+
+      const resGen = await generateInvoice(year, monthNum, defaultBranchId);
+      const resBack = await backfillInvoices(defaultBranchId);
       
       if (resGen.ok && resBack.ok) {
         setBannerMsg(`Invoice statements refreshed and synced successfully!`);

@@ -6,47 +6,14 @@ export default defineConfig({
   plugins: [react()],
   server: {
     proxy: {
+      // Only actual backend API/asset paths. Do NOT add client-side React
+      // Router route names here (e.g. /dashboard, /dataset, /billing,
+      // /unknown, /unknown-dataset, /camera-setup, /web-settings) — those are
+      // pages the SPA itself renders, and previously they were also listed
+      // here, which meant a hard refresh (or direct navigation) on any of
+      // those URLs bypassed the SPA and hit the Flask backend directly
+      // instead of serving index.html.
       '/api': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/dashboard': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/detection': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/camera-setup': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/billing': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/dataset': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/unknown': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/unknown-dataset': {
-        target: 'http://127.0.0.1:5050',
-        changeOrigin: true,
-        secure: false,
-      },
-      '/web-settings': {
         target: 'http://127.0.0.1:5050',
         changeOrigin: true,
         secure: false,

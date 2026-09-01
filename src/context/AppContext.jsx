@@ -24,6 +24,41 @@ export const AppProvider = ({ children }) => {
   const [token, setToken] = useState(() => localStorage.getItem('token') || '');
   const isLoggedIn = !!token;
 
+  // Tenant context returned by /login — restored from storage on reload so a
+  // refresh doesn't lose which org/branch(es) the current user is scoped to.
+  const [authCtx, setAuthCtx] = useState(() => apiSvc.getAuthContext());
+  const { role, orgId, branchIds } = authCtx;
+
+  // ─── Org / Branch selection (drill-down: Super Admin picks an org, then a
+  // branch; Org Admin picks a branch within their own org; Branch User is
+  // auto-scoped to their one branch) — persisted so a reload keeps the pick.
+  const [selectedOrgId, setSelectedOrgIdState] = useState(() => localStorage.getItem('selected_org_id') || '');
+  const [selectedBranchId, setSelectedBranchIdState] = useState(() => localStorage.getItem('selected_branch_id') || '');
+
+  const setSelectedOrgId = (id) => {
+    localStorage.setItem('selected_org_id', id || '');
+    setSelectedOrgIdState(id || '');
+  };
+  const setSelectedBranchId = (id) => {
+    localStorage.setItem('selected_branch_id', id || '');
+    setSelectedBranchIdState(id || '');
+  };
+  const clearSelection = () => {
+    localStorage.removeItem('selected_org_id');
+    localStorage.removeItem('selected_branch_id');
+    setSelectedOrgIdState('');
+    setSelectedBranchIdState('');
+  };
+  // Drop back to org selection (Super Admin) or branch selection (Org Admin)
+  // — used by the "Switch Branch" control in the sidebar.
+  const switchBranch = () => {
+    setSelectedBranchId('');
+    if (role === 'super_admin') setSelectedOrgId('');
+  };
+
+  // Forms/filters across the app default to this branch.
+  const defaultBranchId = selectedBranchId;
+
   const login = async (username, password) => {
     try {
       const response = await fetch(`${apiSvc.API_BASE}/login`, {
@@ -39,9 +74,28 @@ export const AppProvider = ({ children }) => {
         const accessToken = data.response_data?.access_token || '';
         const refreshToken = data.response_data?.refresh_token || '';
         if (accessToken) {
+          const newRole = data.response_data?.role;
+          const newOrgId = data.response_data?.org_id;
+          const newBranchIds = data.response_data?.branch_ids;
+
           apiSvc.setTokens({ access_token: accessToken, refresh_token: refreshToken });
+          apiSvc.setAuthContext({ role: newRole, org_id: newOrgId, branch_ids: newBranchIds });
           setToken(accessToken);
-          return { success: true };
+          setAuthCtx(apiSvc.getAuthContext());
+
+          // A Branch User is auto-scoped to their one branch; an Org Admin's
+          // org is implied. A Super Admin picks both, starting from scratch.
+          if (newRole === 'branch_user' && Array.isArray(newBranchIds) && newBranchIds.length === 1) {
+            setSelectedOrgId(newOrgId || '');
+            setSelectedBranchId(newBranchIds[0]);
+          } else if (newRole === 'org_admin') {
+            setSelectedOrgId(newOrgId || '');
+            setSelectedBranchId('');
+          } else {
+            clearSelection();
+          }
+
+          return { success: true, role: newRole };
         }
       }
       return {
@@ -61,7 +115,10 @@ export const AppProvider = ({ children }) => {
     // in the background so the UI doesn't wait on the network to sign out.
     apiSvc.authLogout().catch(() => {});
     apiSvc.clearTokens();
+    apiSvc.clearAuthContext();
     setToken('');
+    setAuthCtx({ role: '', orgId: '', branchIds: [] });
+    clearSelection();
   };
 
   // ─── Modals State ─────────────────────────────────────────────────────────
@@ -273,6 +330,16 @@ export const AppProvider = ({ children }) => {
         toggleTheme,
         isLoggedIn,
         token,
+        role,
+        orgId,
+        branchIds,
+        defaultBranchId,
+        selectedOrgId,
+        selectedBranchId,
+        setSelectedOrgId,
+        setSelectedBranchId,
+        clearSelection,
+        switchBranch,
         login,
         logout,
         lightbox,

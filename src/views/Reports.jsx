@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
 import { PageHeader } from '../components/PageHeader';
 import { fetchReport, API_BASE } from '../utils/api';
 
 export const Reports = () => {
+  const { defaultBranchId } = useApp();
   const [range, setRange] = useState('30d');
   const [startDate, setStartDate] = useState('2026-07-14');
   const [endDate, setEndDate] = useState('2026-07-21');
@@ -24,7 +26,7 @@ export const Reports = () => {
         params.end = endDate;
       }
       
-      const res = await fetchReport(params);
+      const res = await fetchReport(defaultBranchId, params);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           setReportData(res.data.response_data);
@@ -53,19 +55,22 @@ export const Reports = () => {
 
   useEffect(() => {
     loadReport();
-  }, [range, startDate, endDate]);
+  }, [range, startDate, endDate, defaultBranchId]);
 
   const handleDownloadPDF = async () => {
     try {
       setPdfLoading(true);
-      const params = { range };
+      if (!defaultBranchId) {
+        throw new Error('No branch selected.');
+      }
+      const params = { range, branch_id: defaultBranchId };
       if (range === 'custom') {
         params.start = startDate;
         params.end = endDate;
       }
       const q = new URLSearchParams(params).toString();
       const token = localStorage.getItem('token') || '';
-      
+
       const response = await fetch(`${API_BASE}/reports/pdf?${q}`, {
         headers: {
           'Authorization': `Bearer ${token}`

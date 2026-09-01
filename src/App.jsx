@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProvider, useApp } from './context/AppContext';
 import { AppLayout } from './components/AppLayout';
 
@@ -20,6 +20,9 @@ import Dataset from './views/Dataset';
 import Camera from './views/Camera';
 import TestCamera from './views/TestCamera';
 import Settings from './views/Settings';
+import Organization from './views/Organization';
+import SelectOrganization from './views/SelectOrganization';
+import SelectBranch from './views/SelectBranch';
 import Splash from './views/Splash';
 
 class ErrorBoundary extends React.Component {
@@ -43,11 +46,29 @@ class ErrorBoundary extends React.Component {
   }
 }
 
+// Routes that must stay reachable without an org/branch already picked —
+// the selection pages themselves, and the admin page for managing orgs/branches.
+const SELECTION_EXEMPT_PATHS = ['/select-organization', '/select-branch', '/organization'];
+
 const ProtectedRoute = ({ children }) => {
-  const { isLoggedIn } = useApp();
+  const { isLoggedIn, role, selectedOrgId, selectedBranchId } = useApp();
+  const location = useLocation();
+
   if (!isLoggedIn) {
     return <Navigate to="/" replace />;
   }
+
+  if (!SELECTION_EXEMPT_PATHS.includes(location.pathname)) {
+    // Super Admin: Orgs → Branches → everything else.
+    if (role === 'super_admin' && !selectedOrgId) {
+      return <Navigate to="/select-organization" replace />;
+    }
+    // Super Admin (org picked) or Org Admin: Branches → everything else.
+    if ((role === 'super_admin' || role === 'org_admin') && !selectedBranchId) {
+      return <Navigate to="/select-branch" replace />;
+    }
+  }
+
   return <AppLayout>{children}</AppLayout>;
 };
 
@@ -192,6 +213,30 @@ function App() {
             element={
               <ProtectedRoute>
                 <Settings />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organization"
+            element={
+              <ProtectedRoute>
+                <Organization />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/select-organization"
+            element={
+              <ProtectedRoute>
+                <SelectOrganization />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/select-branch"
+            element={
+              <ProtectedRoute>
+                <SelectBranch />
               </ProtectedRoute>
             }
           />

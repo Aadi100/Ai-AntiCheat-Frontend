@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
+import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
 import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
 import { fetchPersons, fetchUnknowns } from '../utils/api';
 
 export const Persons = () => {
+  const { defaultBranchId } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const tabParam = searchParams.get('tab') === 'unknown' ? 'unknown' : 'enrolled';
   const [activeTab, setActiveTab] = useState(tabParam);
@@ -48,7 +50,7 @@ export const Persons = () => {
       if (search) filters.name = search;
       if (roleFilter !== 'all') filters.role = roleFilter;
 
-      const res = await fetchPersons(filters);
+      const res = await fetchPersons(defaultBranchId, filters);
       if (res.ok) {
         setPersonsList(res.data.response_data || []);
       } else {
@@ -66,7 +68,7 @@ export const Persons = () => {
     try {
       setUnknownLoading(true);
       setUnknownError(null);
-      const res = await fetchUnknowns(page, 24);
+      const res = await fetchUnknowns(defaultBranchId, page, 24);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           const respData = res.data.response_data || {};
@@ -98,13 +100,13 @@ export const Persons = () => {
     if (activeTab === 'enrolled') {
       loadPersons();
     }
-  }, [search, roleFilter, activeTab]);
+  }, [search, roleFilter, activeTab, defaultBranchId]);
 
   useEffect(() => {
     if (activeTab === 'unknown') {
       loadUnknowns();
     }
-  }, [page, activeTab]);
+  }, [page, activeTab, defaultBranchId]);
 
   const calculateDaysLeft = (expiryDateStr) => {
     if (!expiryDateStr) return 999;

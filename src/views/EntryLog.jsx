@@ -6,7 +6,7 @@ import { SecureImage } from '../components/SecureImage';
 import { fetchDetectionsPaginated } from '../utils/api';
 
 export const EntryLog = () => {
-  const { openLightbox, openSessionModal } = useApp();
+  const { openLightbox, openSessionModal, defaultBranchId } = useApp();
   const [sessionLogs, setSessionLogs] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -21,7 +21,7 @@ export const EntryLog = () => {
       setError(null);
       
       const filterParam = filter === 'all' ? null : filter;
-      const res = await fetchDetectionsPaginated(page, 20, filterParam);
+      const res = await fetchDetectionsPaginated(defaultBranchId, page, 20, filterParam);
       
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
@@ -52,7 +52,7 @@ export const EntryLog = () => {
 
   useEffect(() => {
     loadEntryLogs();
-  }, [page, filter]);
+  }, [page, filter, defaultBranchId]);
 
   const handleFilterChange = (newFilter) => {
     setFilter(newFilter);

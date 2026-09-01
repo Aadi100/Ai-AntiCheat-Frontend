@@ -23,7 +23,9 @@ export const AppLayout = ({ children }) => {
     sessionModal,
     closeSessionModal,
     alerts,
-    openLightbox
+    openLightbox,
+    role,
+    switchBranch
   } = useApp();
 
   const navigate = useNavigate();
@@ -85,6 +87,12 @@ export const AppLayout = ({ children }) => {
         { path: '/test-camera', label: 'Test Camera', icon: 'camera' },
         { path: '/web-settings', label: 'Settings', icon: 'trending-up' }
       ]
+    },
+    {
+      title: 'Administration',
+      links: [
+        { path: '/organization', label: 'Organization', icon: 'shield' }
+      ]
     }
   ];
 
@@ -139,10 +147,24 @@ export const AppLayout = ({ children }) => {
             </React.Fragment>
           ))}
           
+          {(role === 'super_admin' || role === 'org_admin') && (
+            <>
+              <div className="nav-section" style={{ marginTop: '20px' }}>Scope</div>
+              <button
+                onClick={() => { switchBranch(); navigate(role === 'super_admin' ? '/select-organization' : '/select-branch'); }}
+                className="nav-link"
+                style={{ width: '100%', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer' }}
+              >
+                <span className="icon"><Icon name="refresh-cw" size={16} /></span>
+                <span>Switch Branch</span>
+              </button>
+            </>
+          )}
+
           <div className="nav-section" style={{ marginTop: '20px' }}>Auth</div>
-          <button 
-            onClick={() => { logout(); navigate('/login'); }} 
-            className="nav-link" 
+          <button
+            onClick={() => { logout(); navigate('/login'); }}
+            className="nav-link"
             style={{ width: '100%', background: 'none', border: 'none', textAlign: 'left', cursor: 'pointer' }}
           >
             <span className="icon"><Icon name="log-out" size={16} /></span>

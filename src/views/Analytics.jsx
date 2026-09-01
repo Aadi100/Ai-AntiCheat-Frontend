@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
 import { PageHeader } from '../components/PageHeader';
 import { fetchAnalytics } from '../utils/api';
 import { Bar, Line } from 'react-chartjs-2';
@@ -26,6 +27,7 @@ ChartJS.register(
 );
 
 export const Analytics = () => {
+  const { defaultBranchId } = useApp();
   const [analyticsData, setAnalyticsData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -34,7 +36,7 @@ export const Analytics = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchAnalytics();
+      const res = await fetchAnalytics(defaultBranchId);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           setAnalyticsData(res.data.response_data);
@@ -61,7 +63,7 @@ export const Analytics = () => {
 
   useEffect(() => {
     getAnalyticsData();
-  }, []);
+  }, [defaultBranchId]);
 
   if (loading) {
     return (

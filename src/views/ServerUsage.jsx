@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useApp } from '../context/AppContext';
 import { PageHeader } from '../components/PageHeader';
 import { fetchServerUsage } from '../utils/api';
 import { Bar } from 'react-chartjs-2';
@@ -14,6 +15,7 @@ import {
 ChartJS.register(CategoryScale, LinearScale, BarElement, Tooltip, Legend);
 
 export const ServerUsage = () => {
+  const { defaultBranchId } = useApp();
   const [usageData, setUsageData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -23,7 +25,7 @@ export const ServerUsage = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchServerUsage(days);
+      const res = await fetchServerUsage(days, defaultBranchId);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           setUsageData(res.data.response_data);
@@ -50,7 +52,7 @@ export const ServerUsage = () => {
 
   useEffect(() => {
     getUsageData();
-  }, [days]);
+  }, [days, defaultBranchId]);
 
   if (loading) {
     return (

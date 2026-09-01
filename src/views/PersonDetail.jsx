@@ -8,7 +8,7 @@ import { fetchPerson, updatePerson, suspendPerson, fetchDetectionsPaginated, fet
 export const PersonDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { openLightbox } = useApp();
+  const { openLightbox, defaultBranchId } = useApp();
 
   const [person, setPerson] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -25,7 +25,7 @@ export const PersonDetail = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await fetchPerson();
+      const res = await fetchPerson(defaultBranchId);
       if (res.ok) {
         // Find person inside returned array
         const personData = Array.isArray(res.data.response_data)
@@ -43,7 +43,7 @@ export const PersonDetail = () => {
           }
 
           // Fetch Accountability (Alerts)
-          const alertsRes = await fetchAlerts(1, 100);
+          const alertsRes = await fetchAlerts(defaultBranchId, 1, 100);
           if (alertsRes.ok && alertsRes.data?.response_data?.data) {
             const allAlerts = alertsRes.data.response_data.data || [];
             const matchedAlerts = allAlerts.filter(a => 
@@ -66,7 +66,7 @@ export const PersonDetail = () => {
 
   useEffect(() => {
     loadPerson();
-  }, [id]);
+  }, [id, defaultBranchId]);
 
   const handleSave = async (e) => {
     e.preventDefault();

@@ -7,7 +7,7 @@ import { fetchAlerts } from '../utils/api';
 import { alertMeta } from '../utils/alertTypes';
 
 export const Alerts = () => {
-  const { openCardModal } = useApp();
+  const { openCardModal, defaultBranchId } = useApp();
   const [alertList, setAlertList] = useState([]);
   const [page, setPage] = useState(1);
   const [totalPages, setTotalPages] = useState(1);
@@ -21,7 +21,7 @@ export const Alerts = () => {
       setLoading(true);
       setError(null);
       
-      const res = await fetchAlerts(page, 20);
+      const res = await fetchAlerts(defaultBranchId, page, 20);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           const respData = res.data.response_data || {};
@@ -51,7 +51,7 @@ export const Alerts = () => {
 
   useEffect(() => {
     loadAlerts();
-  }, [page]);
+  }, [page, defaultBranchId]);
 
   const filteredAlerts = filterType === 'all'
     ? alertList

@@ -14,8 +14,11 @@ export const Settings = () => {
     setEnrolledPersons,
     setUnknownPersons,
     setInvoices,
-    setBillingSummary
+    setBillingSummary,
+    defaultBranchId,
+    role
   } = useApp();
+  const isSuperAdmin = role === 'super_admin';
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -42,14 +45,10 @@ export const Settings = () => {
   const [robustEmb, setRobustEmb] = useState(false);
 
   const [syncEndpoint, setSyncEndpoint] = useState('');
-  const [cameraSaveDir, setCameraSaveDir] = useState('');
-  const [cameraDatasetDir, setCameraDatasetDir] = useState('');
   const [cameraAreaEnabled, setCameraAreaEnabled] = useState(true);
   const [useMultipleImages, setUseMultipleImages] = useState(false);
-  
+
   const [serverRegion, setServerRegion] = useState('');
-  const [serverCollectionId, setServerCollectionId] = useState('');
-  const [unknownServerCollectionId, setUnknownServerCollectionId] = useState('');
   const [serverAccessKey, setServerAccessKey] = useState('');
   const [serverSecretKey, setServerSecretKey] = useState('');
   const [trainUnknownEverySighting, setTrainUnknownEverySighting] = useState(true);
@@ -66,8 +65,8 @@ export const Settings = () => {
       setLoading(true);
       
       const [settingsRes, optionsRes] = await Promise.all([
-        apiSvc.fetchSettings(),
-        apiSvc.fetchRecognitionOptions()
+        apiSvc.fetchSettings(defaultBranchId),
+        apiSvc.fetchRecognitionOptions(defaultBranchId)
       ]);
 
       if (optionsRes.ok && optionsRes.data?.response_data) {
@@ -94,14 +93,10 @@ export const Settings = () => {
     setRobustEmb(s.robust_emb ?? false);
 
     setSyncEndpoint(s.sync_endpoint || '');
-    setCameraSaveDir(s.camera_save_dir || '');
-    setCameraDatasetDir(s.camera_dataset_dir || '');
     setCameraAreaEnabled(s.camera_area_enabled ?? true);
     setUseMultipleImages(s.use_multiple_images ?? false);
 
     setServerRegion(s.server_region || '');
-    setServerCollectionId(s.server_collection_id || '');
-    setUnknownServerCollectionId(s.unknown_server_collection_id || '');
     setTrainUnknownEverySighting(s.train_unknown_every_sighting ?? true);
     setServerAccessKey(s.server_access_key || '');
     setServerSecretKey(s.server_secret_key || '');
@@ -114,7 +109,7 @@ export const Settings = () => {
 
   useEffect(() => {
     loadSettings();
-  }, []);
+  }, [defaultBranchId]);
 
   // Update threshold/margin sliders when selectedMatchModel or settings change
   useEffect(() => {
@@ -141,21 +136,19 @@ export const Settings = () => {
       const payload = {
         api_key: apiKey,
         sync_endpoint: syncEndpoint,
-        camera_save_dir: cameraSaveDir,
-        camera_dataset_dir: cameraDatasetDir,
         camera_area_enabled: cameraAreaEnabled,
         use_multiple_images: useMultipleImages,
         detector,
         embedding_model: embeddingModel,
         robust_emb: robustEmb
       };
-      const res = await apiSvc.saveSettings(payload);
+      const res = await apiSvc.saveSettings(payload, defaultBranchId);
       if (res.ok) {
         setSaveStatus('✓ General configurations saved successfully.');
         setConsoleLogs(prev => [...prev, `[Settings] Saved general backend configurations.`]);
-        const updated = res.data.response_data || {};
-        setSettings(updated);
-        syncFormFields(updated);
+        // The save response never echoes secrets — re-fetch the full (decrypted)
+        // settings instead of syncing the form from it, or api_key/etc would blank out.
+        await loadSettings();
       } else {
         setSaveStatus(`✗ ${res.data?.response_message || 'Failed to save general settings.'}`);
       }
@@ -175,17 +168,15 @@ export const Settings = () => {
         server_access_key: serverAccessKey,
         server_secret_key: serverSecretKey,
         server_region: serverRegion,
-        server_collection_id: serverCollectionId,
-        unknown_server_collection_id: unknownServerCollectionId,
         train_unknown_every_sighting: trainUnknownEverySighting
       };
-      const res = await apiSvc.saveSettings(payload);
+      const res = await apiSvc.saveSettings(payload, defaultBranchId);
       if (res.ok) {
         setSaveStatus('✓ Server Cloud settings saved successfully.');
         setConsoleLogs(prev => [...prev, `[Settings] Updated Server Rekognition collection configs.`]);
-        const updated = res.data.response_data || {};
-        setSettings(updated);
-        syncFormFields(updated);
+        // Same reasoning as handleSaveGeneral — reload rather than trust the
+        // secret-free save response.
+        await loadSettings();
       } else {
         setSaveStatus(`✗ ${res.data?.response_message || 'Failed to save Server settings.'}`);
       }
@@ -206,7 +197,7 @@ export const Settings = () => {
         margin: margin / 100,
         embedding_model: selectedMatchModel
       };
-      const res = await apiSvc.saveMatchSettings(payload);
+      const res = await apiSvc.saveMatchSettings(payload, defaultBranchId);
       if (res.ok) {
         setSaveStatus('✓ Model matching criteria updated.');
         setConsoleLogs(prev => [...prev, `[Settings] Threshold: ${threshold}%, Margin: ${margin}% for ${selectedMatchModel}`]);
@@ -321,6 +312,7 @@ export const Settings = () => {
       <PageHeader
         title="Settings"
         description="Configure recognition models, cloud collections, matching criteria, and system defaults."
+        badge={settings?.settings_code || undefined}
       />
 
       {saveStatus && (
@@ -347,7 +339,7 @@ export const Settings = () => {
         {renderTabChip('general', '⚙️ General & Paths')}
         {renderTabChip('aws', '☁️ Cloud Server')}
         {renderTabChip('matching', '🎯 Matching Criteria')}
-        {renderTabChip('danger', '⚠️ Danger Zone')}
+        {isSuperAdmin && renderTabChip('danger', '⚠️ Danger Zone')}
       </div>
 
       {/* TAB 1: General & Paths */}
@@ -378,30 +370,6 @@ export const Settings = () => {
                 value={syncEndpoint}
                 onChange={e => setSyncEndpoint(e.target.value)}
                 placeholder="http://..."
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Camera Saves Directory Path</label>
-              <input
-                type="text"
-                className="form-input mono"
-                style={inputStyle}
-                value={cameraSaveDir}
-                onChange={e => setCameraSaveDir(e.target.value)}
-                placeholder="e.g. C:\saves"
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Camera Dataset Directory Path</label>
-              <input
-                type="text"
-                className="form-input mono"
-                style={inputStyle}
-                value={cameraDatasetDir}
-                onChange={e => setCameraDatasetDir(e.target.value)}
-                placeholder="e.g. C:\dataset"
               />
             </div>
 
@@ -519,30 +487,6 @@ export const Settings = () => {
               />
             </div>
 
-            <div className="form-group" style={{ marginBottom: '18px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Authorized Faces Collection ID</label>
-              <input
-                type="text"
-                className="form-input mono"
-                style={inputStyle}
-                value={serverCollectionId}
-                onChange={e => setServerCollectionId(e.target.value)}
-                placeholder="rekognition-authorized-faces"
-              />
-            </div>
-
-            <div className="form-group" style={{ marginBottom: '20px' }}>
-              <label className="form-label" style={{ fontWeight: '600', fontSize: '12.5px', marginBottom: '6px' }}>Unknown Faces Collection ID</label>
-              <input
-                type="text"
-                className="form-input mono"
-                style={inputStyle}
-                value={unknownServerCollectionId}
-                onChange={e => setUnknownServerCollectionId(e.target.value)}
-                placeholder="rekognition-unknown-faces"
-              />
-            </div>
-
             {/* Toggle Card 5 */}
             <div style={{ ...toggleContainerStyle, marginBottom: '24px' }}>
               <div>
@@ -629,8 +573,8 @@ export const Settings = () => {
         </div>
       )}
 
-      {/* TAB 4: Danger Zone */}
-      {activeTab === 'danger' && (
+      {/* TAB 4: Danger Zone — Super Admin only, deliberately global (no branch_id) */}
+      {activeTab === 'danger' && isSuperAdmin && (
         <div style={{ ...panelCardStyle, borderColor: 'var(--err)', borderStyle: 'solid', borderWidth: '1px' }}>
           <div style={{ fontWeight: '800', fontSize: '15px', color: 'var(--err)', marginBottom: '18px', borderBottom: '1px solid rgba(240,71,90,0.15)', paddingBottom: '10px' }}>
             🗑️ Destructive Flush Operations

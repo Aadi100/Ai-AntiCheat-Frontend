@@ -8,7 +8,9 @@ export const Camera = () => {
   const {
     cameras,
     setCameras,
-    setConsoleLogs
+    setConsoleLogs,
+    defaultBranchId,
+    selectedOrgId
   } = useApp();
 
   const [loading, setLoading] = useState(true);
@@ -28,6 +30,8 @@ export const Camera = () => {
   const [ipUrl, setIpUrl] = useState('');
   const [addLocation, setAddLocation] = useState('');
   const [addAction, setAddAction] = useState('');
+  const [addBranchId, setAddBranchId] = useState('');
+  const [branches, setBranches] = useState([]);
   const [addConnected, setAddConnected] = useState(false);
   const [addConnecting, setAddConnecting] = useState(false);
   const [addConnectStatus, setAddConnectStatus] = useState('Connect first to draw a capture area (optional).');
@@ -65,7 +69,7 @@ export const Camera = () => {
     try {
       setLoading(true);
       setError(null);
-      const res = await apiSvc.fetchCameras();
+      const res = await apiSvc.fetchCameras(defaultBranchId);
       if (res.ok) {
         // Backend now returns "id" instead of "_id" — normalize so the rest
         // of this view (which keys/links off `_id`) keeps working either way.
@@ -86,7 +90,23 @@ export const Camera = () => {
 
   useEffect(() => {
     loadCameras();
-  }, []);
+  }, [defaultBranchId]);
+
+  // Branches — needed since /cameras/create now requires a branch_id
+  useEffect(() => {
+    const loadBranches = async () => {
+      try {
+        const res = await apiSvc.fetchBranches(selectedOrgId);
+        if (res.ok) {
+          const list = res.data?.response_data || [];
+          setBranches(list);
+          // Default to the branch the app is currently scoped to.
+          setAddBranchId(prev => prev || defaultBranchId || (list[0]?._id || list[0]?.id) || '');
+        }
+      } catch (e) { /* silent — branch_id stays empty, create will surface a 403 */ }
+    };
+    loadBranches();
+  }, [defaultBranchId, selectedOrgId]);
 
   // Update ticking clock
   useEffect(() => {
@@ -116,39 +136,20 @@ export const Camera = () => {
     }
   }, [selectedCameraId, cameras]);
 
-  // Clean up active streams on unmount
+  // Streams are rendered directly in the browser from each camera's own
+  // source URL (MJPEG over HTTP) — nothing to tear down on the backend.
   useEffect(() => {
-    return () => {
-      if (selectedCameraId && isStreaming) {
-        apiSvc.stopCamera(selectedCameraId).catch(console.error);
-      }
-    };
+    return () => {};
   }, [selectedCameraId, isStreaming]);
 
   // Actions
-  const handleActionClick = async (camId, mode) => {
+  const handleActionClick = (camId, mode) => {
     if (selectedCameraId === camId && activeMode === mode) {
-      if (isStreaming) {
-        try {
-          await apiSvc.stopCamera(camId);
-        } catch (e) {
-          console.error(e);
-        }
-        setIsStreaming(false);
-      }
+      setIsStreaming(false);
       setSelectedCameraId(null);
       setActiveMode(null);
       setIsEditingRoi(false);
       return;
-    }
-
-    if (isStreaming && selectedCameraId && selectedCameraId !== camId) {
-      try {
-        await apiSvc.stopCamera(selectedCameraId);
-      } catch (e) {
-        console.error(e);
-      }
-      setIsStreaming(false);
     }
 
     setSelectedCameraId(camId);
@@ -157,21 +158,9 @@ export const Camera = () => {
     if (mode === 'stream') {
       setIsEditingRoi(false);
       setIsStreaming(true);
-      try {
-        await apiSvc.startCamera(camId);
-        loadCameras();
-      } catch (e) {
-        console.error(e);
-      }
     } else if (mode === 'roi') {
       setIsEditingRoi(true);
       setIsStreaming(true);
-      try {
-        await apiSvc.startCamera(camId);
-        loadCameras();
-      } catch (e) {
-        console.error(e);
-      }
     } else if (mode === 'edit') {
       setIsEditingRoi(false);
       setIsStreaming(false);
@@ -191,7 +180,7 @@ export const Camera = () => {
     try {
       setSaving(true);
       const res = await apiSvc.updateCamera({
-        id: selectedCameraId,
+        _id: selectedCameraId,
         name: editName,
         source: editSource,
         location: editLocation,
@@ -236,43 +225,6 @@ export const Camera = () => {
     }
   };
 
-  const handleStartStream = async (camId) => {
-    try {
-      setSaving(true);
-      const res = await apiSvc.startCamera(camId);
-      if (res.ok) {
-        setIsStreaming(true);
-        setConsoleLogs(prev => [...prev, `[Camera] Live stream started for camera: ${camId}`]);
-        loadCameras();
-      } else {
-        alert(`Failed to start stream: ${res.data?.response_message}`);
-      }
-    } catch (err) {
-      alert(`Connection error: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleStopStream = async (camId) => {
-    try {
-      setSaving(true);
-      const res = await apiSvc.stopCamera(camId);
-      if (res.ok) {
-        setIsStreaming(false);
-        setIsEditingRoi(false);
-        setConsoleLogs(prev => [...prev, `[Camera] Live stream stopped for camera: ${camId}`]);
-        loadCameras();
-      } else {
-        alert(`Failed to stop stream: ${res.data?.response_message}`);
-      }
-    } catch (err) {
-      alert(`Connection error: ${err.message}`);
-    } finally {
-      setSaving(false);
-    }
-  };
-
   const handleAddConnect = () => {
     if (!addName.trim()) {
       setAddConnectStatus('Enter a camera name first.');
@@ -303,6 +255,10 @@ export const Camera = () => {
       alert("IP/RTSP URL is required.");
       return;
     }
+    if (!addBranchId) {
+      alert("Branch is required.");
+      return;
+    }
     try {
       setSaving(true);
       const createRes = await apiSvc.createCamera({
@@ -310,7 +266,8 @@ export const Camera = () => {
         type: addType,
         source: ipUrl.trim(),
         location: addLocation,
-        action: addAction
+        action: addAction,
+        branch_id: addBranchId
       });
 
       if (createRes.ok) {
@@ -621,9 +578,13 @@ export const Camera = () => {
                         <div className="roi-stage" ref={overlayRef} style={{ background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid var(--border-soft)' }}>
                           <img
                             className="video-frame"
-                            src="https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=640&auto=format&fit=crop&q=80"
+                            src={c.source}
                             style={{ width: '100%', display: 'block', opacity: 0.8 }}
                             alt="Live Camera Feed"
+                            onError={(e) => {
+                              e.target.onerror = null;
+                              e.target.src = 'https://images.unsplash.com/photo-1517245386807-bb43f82c33c4?w=640&auto=format&fit=crop&q=80';
+                            }}
                           />
                           
                           {/* Grid HUD overlays */}
@@ -916,7 +877,7 @@ export const Camera = () => {
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>
                   <label className="form-label" style={{ fontSize: '12.5px', fontWeight: '600' }}>Location</label>
                   <input
@@ -937,6 +898,23 @@ export const Camera = () => {
                     placeholder="e.g. checkin"
                   />
                 </div>
+              </div>
+
+              <div className="form-group" style={{ marginBottom: '20px' }}>
+                <label className="form-label" style={{ fontSize: '12.5px', fontWeight: '600' }}>Branch *</label>
+                <select
+                  className="form-select"
+                  style={inputStyle}
+                  value={addBranchId}
+                  onChange={(e) => setAddBranchId(e.target.value)}
+                  required
+                >
+                  {branches.length > 0 ? (
+                    branches.map(b => <option key={b._id || b.id} value={b._id || b.id}>{b.name}</option>)
+                  ) : (
+                    <option value="">No branches available</option>
+                  )}
+                </select>
               </div>
 
               {/* Modal Actions */}

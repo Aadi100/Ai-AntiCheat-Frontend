@@ -6,7 +6,7 @@ import { SecureImage } from '../components/SecureImage';
 import * as apiSvc from '../utils/api';
 
 export const TestCamera = () => {
-  const { setConsoleLogs } = useApp();
+  const { setConsoleLogs, defaultBranchId } = useApp();
 
   const [deviceList, setDeviceList] = useState([]); // [{deviceId, label}]
   const [selectedDeviceId, setSelectedDeviceId] = useState('');
@@ -97,7 +97,7 @@ export const TestCamera = () => {
     const loadCameras = async () => {
       setCamerasLoading(true);
       try {
-        const res = await apiSvc.fetchCameras();
+        const res = await apiSvc.fetchCameras(defaultBranchId);
         if (res.ok && Array.isArray(res.data?.response_data)) {
           const list = res.data.response_data.map(c => ({ ...c, _id: c._id || c.id }));
           setCameraList(list);
@@ -112,7 +112,7 @@ export const TestCamera = () => {
       }
     };
     loadCameras();
-  }, []);
+  }, [defaultBranchId]);
 
   // Update ticking clock
   useEffect(() => {
