@@ -19,10 +19,10 @@ export const EntryLog = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const filterParam = filter === 'all' ? null : filter;
       const res = await fetchDetectionsPaginated(defaultBranchId, page, 20, filterParam);
-      
+
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
           const respData = res.data.response_data || {};
@@ -125,7 +125,7 @@ export const EntryLog = () => {
               if (!log) return null;
               const sessionTime = formatTime(log.started_at);
               const sessionEndTime = formatTime(log.ended_at);
-              
+
               const knownNames = Array.isArray(log.known_names) ? log.known_names : [];
               const images = Array.isArray(log.images) ? log.images : [];
 
@@ -152,11 +152,10 @@ export const EntryLog = () => {
                       <span className="session-meta">
                         {sessionEndTime && sessionEndTime !== sessionTime && `→ ${sessionEndTime}`}
                       </span>
-                      <span className={`badge ${
-                        log.trigger === 'ping' ? 'badge-blue' :
-                        log.trigger === 'grab' ? 'badge-ok' :
-                        log.trigger === 'burst' ? 'badge-blue' : 'badge-muted'
-                      }`}>
+                      <span className={`badge ${log.trigger === 'ping' ? 'badge-blue' :
+                          log.trigger === 'grab' ? 'badge-ok' :
+                            log.trigger === 'burst' ? 'badge-blue' : 'badge-muted'
+                        }`}>
                         {log.trigger}
                       </span>
                       {log.location && <span className="loc-badge">📍 {log.location}</span>}
@@ -205,9 +204,9 @@ export const EntryLog = () => {
           {/* Pagination Controls */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '14px', marginTop: '20px' }}>
-              <button 
-                className="btn btn-sm" 
-                disabled={page === 1} 
+              <button
+                className="btn btn-sm"
+                disabled={page === 1}
                 onClick={() => setPage(prev => Math.max(1, prev - 1))}
               >
                 ◀ Previous
@@ -215,9 +214,9 @@ export const EntryLog = () => {
               <span style={{ fontSize: '13px', color: 'var(--fg3)' }}>
                 Page <strong>{page}</strong> of <strong>{totalPages}</strong> ({totalRecords} sessions)
               </span>
-              <button 
-                className="btn btn-sm" 
-                disabled={page === totalPages} 
+              <button
+                className="btn btn-sm"
+                disabled={page === totalPages}
                 onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
               >
                 Next ▶

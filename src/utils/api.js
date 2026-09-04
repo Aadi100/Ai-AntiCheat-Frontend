@@ -134,13 +134,13 @@ async function doFetch(method, path, { body, isForm, isRetry } = {}) {
     if (body !== undefined) {
       fetchOpts.body = isForm
         ? (() => {
-            const f = new FormData();
-            Object.entries(body).forEach(([k, v]) => {
-              if (Array.isArray(v)) v.forEach(item => f.append(k, item));
-              else f.append(k, v);
-            });
-            return f;
-          })()
+          const f = new FormData();
+          Object.entries(body).forEach(([k, v]) => {
+            if (Array.isArray(v)) v.forEach(item => f.append(k, item));
+            else f.append(k, v);
+          });
+          return f;
+        })()
         : JSON.stringify(body);
     }
 
@@ -463,22 +463,22 @@ export const formatImagePath = (path) => {
   if (path.startsWith('http://') || path.startsWith('https://')) {
     return path;
   }
-  
+
   let normalized = path.replace(/\\/g, '/');
-  
+
   if (normalized.startsWith('/media/')) {
     return normalized;
   }
-  
+
   const mediaIndex = normalized.indexOf('media/');
   if (mediaIndex !== -1) {
     return '/' + normalized.substring(mediaIndex);
   }
-  
+
   if (normalized.startsWith('/')) {
     return '/media' + normalized;
   }
-  
+
   return '/media/' + normalized;
 };
 

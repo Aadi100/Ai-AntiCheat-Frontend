@@ -29,16 +29,17 @@ export const DashboardOverview = () => {
   const [dashboardData, setDashboardData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [debugModal, setDebugModal] = useState(null); // { debugPayload, response, status, ok }
 
   // Quick access key: Shift+P runs a camera scan → stream → capture & recognize
-  // in the background (no navigation) and reports the result via toast.
+  // in the background (no navigation) and reports the result via toast only.
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.shiftKey && e.key.toUpperCase() === 'P') {
         const tag = document.activeElement?.tagName;
         if (tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.isContentEditable) return;
         e.preventDefault();
-        runBackgroundCameraDiagnostic();
+        runBackgroundCameraDiagnostic(); // toast only — no debug modal
       }
     };
     window.addEventListener('keydown', handleKeyDown);
@@ -236,9 +237,43 @@ export const DashboardOverview = () => {
         description="Real-time surveillance summary across every connected camera zone."
         badge="⌘ Shift+P — quick camera test"
       >
-        <div className={`mini-toggle ${previewOn ? 'on' : ''}`} onClick={() => setPreviewOn(prev => !prev)}>
-          <span className="mini-toggle-track"><span className="mini-toggle-thumb"></span></span>
-          Camera Preview
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          {/* Debug: run quick test and show request/response */}
+          <button
+            className="btn btn-sm"
+            title="Run Shift+P quick camera test and show request/response"
+            onClick={async () => {
+              const result = await runBackgroundCameraDiagnostic();
+              if (result) setDebugModal(result);
+            }}
+            style={{
+              fontSize: '12px', padding: '5px 12px',
+              background: 'rgba(99,102,241,0.15)',
+              color: '#a5b4fc',
+              border: '1px solid rgba(99,102,241,0.35)'
+            }}
+          >
+            🔬 Run &amp; Inspect
+          </button>
+          {debugModal && (
+            <button
+              className="btn btn-sm"
+              title="Show last debug result"
+              onClick={() => setDebugModal(debugModal)}
+              style={{
+                fontSize: '11px', padding: '5px 10px',
+                background: debugModal.ok ? 'rgba(34,197,94,0.12)' : 'rgba(240,71,90,0.12)',
+                color: debugModal.ok ? '#22c55e' : '#f0475a',
+                border: `1px solid ${debugModal.ok ? 'rgba(34,197,94,0.3)' : 'rgba(240,71,90,0.3)'}`
+              }}
+            >
+              {debugModal.ok ? '✓' : '✗'} Last Result
+            </button>
+          )}
+          <div className={`mini-toggle ${previewOn ? 'on' : ''}`} onClick={() => setPreviewOn(prev => !prev)}>
+            <span className="mini-toggle-track"><span className="mini-toggle-thumb"></span></span>
+            Camera Preview
+          </div>
         </div>
       </PageHeader>
 
@@ -465,6 +500,117 @@ export const DashboardOverview = () => {
           </div>
         )}
       </div>
+
+      {/* ── Shift+P Debug Modal ─────────────────────────────────────────── */}
+      {debugModal && (
+        <div
+          onClick={() => setDebugModal(null)}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 9999,
+            background: 'rgba(0,0,0,0.75)',
+            backdropFilter: 'blur(6px)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            padding: '24px'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: '#13131e',
+              border: '1px solid rgba(255,255,255,0.10)',
+              borderRadius: '14px',
+              width: '100%', maxWidth: '920px',
+              maxHeight: '85vh',
+              display: 'flex', flexDirection: 'column',
+              boxShadow: '0 24px 80px rgba(0,0,0,0.7)',
+              overflow: 'hidden'
+            }}
+          >
+            {/* Header */}
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '16px 20px',
+              borderBottom: '1px solid rgba(255,255,255,0.08)',
+              background: 'rgba(139,92,246,0.08)'
+            }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <span style={{ fontSize: '18px' }}>🔬</span>
+                <span style={{ fontWeight: 700, fontSize: '14px', color: '#e7e8f2' }}>
+                  Shift+P — Quick Camera Test Debug
+                </span>
+                <span style={{
+                  fontSize: '11px', padding: '2px 8px', borderRadius: '20px', fontWeight: 600,
+                  background: debugModal.ok ? 'rgba(34,197,94,0.15)' : 'rgba(240,71,90,0.15)',
+                  color: debugModal.ok ? '#22c55e' : '#f0475a',
+                  border: `1px solid ${debugModal.ok ? 'rgba(34,197,94,0.3)' : 'rgba(240,71,90,0.3)'}`
+                }}>
+                  HTTP {debugModal.status} {debugModal.ok ? '✓ OK' : '✗ ERROR'}
+                </span>
+              </div>
+              <button
+                onClick={() => setDebugModal(null)}
+                style={{ background: 'none', border: 'none', color: '#8a8da3', cursor: 'pointer', fontSize: '20px', lineHeight: 1, padding: '2px 6px' }}
+              >
+                ×
+              </button>
+            </div>
+
+            {/* Body — two columns */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', flex: 1, overflow: 'hidden' }}>
+
+              {/* Request Body */}
+              <div style={{ display: 'flex', flexDirection: 'column', borderRight: '1px solid rgba(255,255,255,0.07)', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.03)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: '#6366f1', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    📤 Request Body — POST /api/v1/detections/recognize-images
+                  </span>
+                </div>
+                <pre style={{
+                  flex: 1, overflowY: 'auto', margin: 0, padding: '14px 16px',
+                  fontFamily: "ui-monospace, Consolas, 'Courier New', monospace",
+                  fontSize: '12px', lineHeight: '1.65', color: '#a5b4fc',
+                  background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+                }}>
+                  {JSON.stringify(debugModal.debugPayload, null, 2)}
+                </pre>
+              </div>
+
+              {/* Response */}
+              <div style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                <div style={{ padding: '10px 16px', borderBottom: '1px solid rgba(255,255,255,0.06)', background: 'rgba(255,255,255,0.03)' }}>
+                  <span style={{ fontSize: '11px', fontWeight: 700, color: debugModal.ok ? '#22c55e' : '#f0475a', textTransform: 'uppercase', letterSpacing: '0.6px' }}>
+                    📥 Response Body
+                  </span>
+                </div>
+                <pre style={{
+                  flex: 1, overflowY: 'auto', margin: 0, padding: '14px 16px',
+                  fontFamily: "ui-monospace, Consolas, 'Courier New', monospace",
+                  fontSize: '12px', lineHeight: '1.65',
+                  color: debugModal.ok ? '#86efac' : '#fca5a5',
+                  background: 'transparent', whiteSpace: 'pre-wrap', wordBreak: 'break-word'
+                }}>
+                  {JSON.stringify(debugModal.response, null, 2)}
+                </pre>
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div style={{
+              padding: '10px 20px',
+              borderTop: '1px solid rgba(255,255,255,0.07)',
+              display: 'flex', justifyContent: 'flex-end'
+            }}>
+              <button
+                className="btn btn-sm"
+                onClick={() => setDebugModal(null)}
+                style={{ fontSize: '12px' }}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -20,7 +20,7 @@ export const Alerts = () => {
     try {
       setLoading(true);
       setError(null);
-      
+
       const res = await fetchAlerts(defaultBranchId, page, 20);
       if (res.ok) {
         if (res.data && (res.data.response_code === 'SUCCESS' || res.data.response_code === 200)) {
@@ -175,9 +175,9 @@ export const Alerts = () => {
           {/* Pagination Controls */}
           {totalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '14px', marginTop: '20px' }}>
-              <button 
-                className="btn btn-sm" 
-                disabled={page === 1} 
+              <button
+                className="btn btn-sm"
+                disabled={page === 1}
                 onClick={() => setPage(prev => Math.max(1, prev - 1))}
               >
                 ◀ Previous
@@ -185,9 +185,9 @@ export const Alerts = () => {
               <span style={{ fontSize: '13px', color: 'var(--fg3)' }}>
                 Page <strong>{page}</strong> of <strong>{totalPages}</strong> ({totalRecords} total alerts)
               </span>
-              <button 
-                className="btn btn-sm" 
-                disabled={page === totalPages} 
+              <button
+                className="btn btn-sm"
+                disabled={page === totalPages}
                 onClick={() => setPage(prev => Math.min(totalPages, prev + 1))}
               >
                 Next ▶

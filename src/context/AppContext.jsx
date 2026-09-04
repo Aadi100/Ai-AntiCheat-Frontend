@@ -2,7 +2,6 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import * as mock from '../utils/mockData';
 import * as apiSvc from '../utils/api';
 
-export const QUICK_TEST_CAMERA_ID = '6a66fc33f08b0000ceda82f8';
 
 const AppContext = createContext();
 
@@ -249,14 +248,35 @@ export const AppProvider = ({ children }) => {
 
       setConsoleLogs(prev => [...prev, '[Quick Test] Frames captured. Posting payload to recognize-images API...']);
 
+      // Dynamically pick the first enrolled camera for this branch — same
+      // order as the Camera ID dropdown in the Test Camera page.
+      let firstCameraId = '';
+      try {
+        const camRes = await apiSvc.fetchCameras(defaultBranchId);
+        if (camRes.ok && Array.isArray(camRes.data?.response_data) && camRes.data.response_data.length > 0) {
+          firstCameraId = camRes.data.response_data[0]._id || camRes.data.response_data[0].id || '';
+        }
+      } catch (_) { /* ignore — send empty camera_id */ }
+
       const payload = {
-        camera_id: QUICK_TEST_CAMERA_ID,
+        camera_id: firstCameraId,
         process: 'server',
         images: capturedImages,
         dataset_folder: 'dataset',
         collection_id: null,
         log: true,
         return_details: true
+      };
+
+      // Debug-friendly version — replaces raw base64 blobs with metadata only
+      const debugPayload = {
+        ...payload,
+        images: Object.fromEntries(
+          Object.entries(capturedImages).map(([k, v]) => [
+            k,
+            `[base64 JPEG ~${Math.round(v.length / 1024)}KB]`
+          ])
+        )
       };
 
       const res = await apiSvc.recognizeImages(payload);
@@ -274,6 +294,9 @@ export const AppProvider = ({ children }) => {
         addToast({ type: 'error', title: 'Quick Camera Test Failed', message: res.data?.response_message || 'Recognition pipeline returned an error.' });
         setConsoleLogs(prev => [...prev, `[Quick Test] Recognition pipeline error: ${res.data?.response_message}`]);
       }
+
+      // Return debug info for the caller to display
+      return { debugPayload, response: res.data, status: res.status, ok: res.ok };
     } catch (err) {
       addToast({ type: 'error', title: 'Quick Camera Test Failed', message: err.message });
     } finally {
