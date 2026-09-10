@@ -60,7 +60,7 @@ export const AppProvider = ({ children }) => {
 
   const login = async (username, password) => {
     try {
-      const response = await fetch(`${apiSvc.API_BASE}/login`, {
+      const response = await fetch(`${apiSvc.ORIGIN_BASE}${apiSvc.API_BASE}/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
@@ -340,7 +340,7 @@ export const AppProvider = ({ children }) => {
 
     const loadBillingSummary = async () => {
       try {
-        const response = await fetch(`${apiSvc.API_BASE}/invoices/compute`, {
+        const response = await fetch(`${apiSvc.ORIGIN_BASE}${apiSvc.API_BASE}/invoices/compute`, {
           headers: {
             'Authorization': `Bearer ${token}`
           }

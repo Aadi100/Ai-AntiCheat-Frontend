@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Icon } from './Icon';
+import { ORIGIN_BASE } from '../utils/api';
 
 export const useSecureImage = (imagePath) => {
   const [src, setSrc] = useState('');
@@ -30,7 +31,7 @@ export const useSecureImage = (imagePath) => {
         const normalizedPath = imagePath.replace(/\\/g, '/');
         
         const token = localStorage.getItem('token') || '';
-        const url = `/media?path=${encodeURIComponent(normalizedPath)}`;
+        const url = `${ORIGIN_BASE}/media?path=${encodeURIComponent(normalizedPath)}`;
         
         const response = await fetch(url, {
           headers: {

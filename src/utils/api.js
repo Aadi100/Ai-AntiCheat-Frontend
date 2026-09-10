@@ -6,13 +6,19 @@
  * Vite dev proxy forwards /api/* -> http://localhost:5050
  */
 
-const BASE = '';
+// Backend origin. Empty string ('') keeps requests same-origin, relying on
+// the Vite dev proxy (see vite.config.js) locally, or on the frontend and
+// backend sharing a domain in production. Set VITE_API_BASE_URL in .env to
+// point at a backend hosted on a different domain (e.g. when the frontend
+// is deployed to Vercel and the backend lives elsewhere).
+const BASE = import.meta.env.VITE_API_BASE_URL || '';
 
 // Single source of truth for the API version — bump this in one place to
 // re-point every endpoint below (e.g. 'v1' -> 'v2').
 const API_VERSION = 'v1';
 const API = `/api/${API_VERSION}`;
 export const API_BASE = API;
+export const ORIGIN_BASE = BASE;
 
 const TOKEN_KEY = 'token';
 const REFRESH_TOKEN_KEY = 'refresh_token';
@@ -476,19 +482,19 @@ export const formatImagePath = (path) => {
   let normalized = path.replace(/\\/g, '/');
 
   if (normalized.startsWith('/media/')) {
-    return normalized;
+    return BASE + normalized;
   }
 
   const mediaIndex = normalized.indexOf('media/');
   if (mediaIndex !== -1) {
-    return '/' + normalized.substring(mediaIndex);
+    return BASE + '/' + normalized.substring(mediaIndex);
   }
 
   if (normalized.startsWith('/')) {
-    return '/media' + normalized;
+    return BASE + '/media' + normalized;
   }
 
-  return '/media/' + normalized;
+  return BASE + '/media/' + normalized;
 };
 
 // branch_id is now required by the backend — fail fast locally with the same
