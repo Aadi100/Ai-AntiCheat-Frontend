@@ -184,7 +184,7 @@ export const Reports = () => {
           {/* PDF layout watermark / header */}
           <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid var(--border-soft)', paddingBottom: '14px', marginBottom: '20px' }}>
             <div>
-              <div style={{ fontWeight: '800', fontSize: '15px' }}>FITNESSMARVEL AI ANTICHEAT REPORT</div>
+              <div style={{ fontWeight: '800', fontSize: '15px' }}>FITNESSMARVEL ANTICHEAT REPORT</div>
               <div className="text-muted" style={{ fontSize: '11px', marginTop: '2px' }}>
                 Surveillance Period: <span className="mono">{rangeStart}</span> to <span className="mono">{rangeEnd}</span> ({rangeLabel})
               </div>

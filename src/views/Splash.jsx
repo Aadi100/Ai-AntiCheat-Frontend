@@ -65,12 +65,12 @@ export const Splash = () => {
         </div>
 
         {/* Subhead Tag */}
-        <div className="eyebrow"><span className="dot"></span>AI-Powered Anti-Cheat Security</div>
+        <div className="eyebrow"><span className="dot"></span>Anti-Cheat Security</div>
 
         {/* Auto Carousel Slides */}
         <div className="slides">
           <div className={`slide ${activeIdx === 0 ? 'active' : ''}`}>
-            <div className="headline">The AI Powered AntiCheat System.</div>
+            <div className="headline">The AntiCheat System.</div>
             <div className="subtext">Free passes, shared keycards, and lax staff are draining your monthly recurring revenue.</div>
           </div>
           <div className={`slide ${activeIdx === 1 ? 'active' : ''}`}>
@@ -78,7 +78,7 @@ export const Splash = () => {
             <div className="subtext">Free passes, shared keycards, and lax staff are draining your monthly recurring revenue.</div>
           </div>
           <div className={`slide ${activeIdx === 2 ? 'active' : ''}`}>
-            <div className="headline">AI-Powered Revenue Protection.</div>
+            <div className="headline">Revenue Protection.</div>
             <div className="subtext">Our anti-cheat system detects tailgaters and proxy entries the second they happen.</div>
           </div>
           <div className={`slide ${activeIdx === 3 ? 'active' : ''}`}>

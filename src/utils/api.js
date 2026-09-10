@@ -237,6 +237,12 @@ export const fetchDetectionSessions = (branchId, page = 1, perPage = 20) => {
   return apiGet(`${API}/detections/sessions?${params}`);
 };
 
+export const suspendDetection = (id) =>
+  apiPost(API + '/detections/suspend', { _id: id });
+
+export const suspendGrab = (id) =>
+  apiPost(API + '/grabs/suspend', { _id: id });
+
 // ─── Alerts ──────────────────────────────────────────────────────────────────
 export const fetchAlerts = (branchId, page = 1, perPage = 20) => {
   if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
@@ -258,6 +264,9 @@ export const fetchAlertsTopLocations = (branchId, limit) => {
   if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
   return apiGet(`${API}/alerts/top-locations?branch_id=${branchId}${limit ? `&limit=${limit}` : ''}`);
 };
+
+export const suspendAlert = (id) =>
+  apiPost(API + '/alerts/suspend', { _id: id });
 
 // ─── Persons ─────────────────────────────────────────────────────────────────
 export const fetchPersons = (branchId, filters = {}) => {
@@ -504,16 +513,6 @@ export const deleteDatasetPerson = (name, branchId) => {
   return apiPost(API + '/dataset/delete-person', { name, branch_id: branchId });
 };
 
-export const deleteDatasetAll = (branchId) => {
-  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
-  return apiPost(API + '/dataset/delete-local', { branch_id: branchId });
-};
-
-export const trainDataset = (branchId = '') => {
-  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
-  return apiPost(API + '/dataset/train', { branch_id: branchId });
-};
-
 export const syncTrainDataset = (branchId = '') => {
   if (!branchId) return Promise.resolve(MISSING_BRANCH_ID);
   return apiPost(API + '/dataset/sync-train', { branch_id: branchId });
@@ -564,22 +563,37 @@ export const deleteDatasetServerFaces = (branchId, faceIds = [], collectionId = 
   return apiPost(API + '/dataset/server/delete-faces', { branch_id: branchId, face_ids: faceIds, ...(collectionId && { collection_id: collectionId }) });
 };
 
-export const fetchDuplicatesPendingCount = (branchId, folder = '') => {
-  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
-  const params = new URLSearchParams({ branch_id: branchId });
-  if (folder) params.append('folder', folder);
-  return apiGet(`${API}/duplicate-reviews/pending/count?${params}`);
+const MISSING_FOLDER_QUERY = { ok: false, status: 400, data: { response_code: 'CODE_MISSING_PARAMETERS', response_message: 'Missing parameter(s): folder' } };
+
+export const fetchDuplicatesPendingCount = (folder) => {
+  if (!folder) return Promise.resolve(MISSING_FOLDER_QUERY);
+  return apiGet(`${API}/duplicate-reviews/pending/count?folder=${encodeURIComponent(folder)}`);
 };
 
-export const fetchDuplicatesPending = (branchId, folder = '') => {
-  if (!branchId) return Promise.resolve(MISSING_BRANCH_ID_QUERY);
-  const params = new URLSearchParams({ branch_id: branchId });
-  if (folder) params.append('folder', folder);
-  return apiGet(`${API}/duplicate-reviews/pending?${params}`);
+export const fetchDuplicatesPending = (folder) => {
+  if (!folder) return Promise.resolve(MISSING_FOLDER_QUERY);
+  return apiGet(`${API}/duplicate-reviews/pending?folder=${encodeURIComponent(folder)}`);
 };
 
-export const resolveDuplicateReview = (reviewId, resolution = 'ignored') =>
-  apiPost(`${API}/duplicate-reviews/${reviewId}/resolve`, { resolution });
+export const resolveDuplicateReview = (reviewId, action = 'skip') =>
+  apiPost(`${API}/duplicate-reviews/${reviewId}/resolve`, { action });
+
+export const createDuplicateReview = (body) =>
+  apiPost(API + '/duplicate-reviews/create', body);
+
+export const fetchDuplicateReviews = (folder = '', resolution = '') => {
+  const params = new URLSearchParams();
+  if (folder) params.append('folder', folder);
+  if (resolution) params.append('resolution', resolution);
+  const qs = params.toString();
+  return apiGet(`${API}/duplicate-reviews/read${qs ? `?${qs}` : ''}`);
+};
+
+export const updateDuplicateReview = (body) =>
+  apiPut(API + '/duplicate-reviews/update', body);
+
+export const suspendDuplicateReview = (id) =>
+  apiPost(API + '/duplicate-reviews/suspend', { _id: id });
 
 // ─── Unknown Dataset ──────────────────────────────────────────────────────────
 export const fetchUnknownDatasetImages = () =>

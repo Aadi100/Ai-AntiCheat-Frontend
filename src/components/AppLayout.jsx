@@ -22,7 +22,7 @@ export const AppLayout = ({ children }) => {
     closeCardModal,
     sessionModal,
     closeSessionModal,
-    alerts,
+    alertsCount,
     openLightbox,
     role,
     switchBranch
@@ -105,7 +105,7 @@ export const AppLayout = ({ children }) => {
     if (location.pathname.startsWith('/person/')) return 'Person Details';
     if (location.pathname.startsWith('/unknown/')) return 'Unknown Person Details';
     if (location.pathname === '/billing/checkout') return 'Checkout';
-    return 'FitnessMarvel Ai AntiCheat';
+    return 'FitnessMarvel AntiCheat';
   };
 
   return (
@@ -119,7 +119,7 @@ export const AppLayout = ({ children }) => {
             </div>
           </div>
           <div>
-            <div className="brand">FitnessMarvel Ai AntiCheat</div>
+            <div className="brand">FitnessMarvel AntiCheat</div>
             <div className="sub">Surveillance</div>
           </div>
         </div>
@@ -139,8 +139,8 @@ export const AppLayout = ({ children }) => {
                     <Icon name={link.icon} size={16} />
                   </span>
                   <span>{link.label}</span>
-                  {link.badge && alerts.length > 0 && (
-                    <span className="nav-badge">{alerts.length > 99 ? '99+' : alerts.length}</span>
+                  {link.badge && alertsCount > 0 && (
+                    <span className="nav-badge">{alertsCount > 99 ? '99+' : alertsCount}</span>
                   )}
                 </NavLink>
               ))}

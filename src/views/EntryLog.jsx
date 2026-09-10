@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
 import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
-import { fetchDetectionsPaginated } from '../utils/api';
+import { fetchDetectionsPaginated, suspendDetection, suspendGrab } from '../utils/api';
 
 export const EntryLog = () => {
   const { openLightbox, openSessionModal, defaultBranchId } = useApp();
@@ -59,6 +59,31 @@ export const EntryLog = () => {
     setPage(1);
   };
 
+  const handleDeleteLog = async (log) => {
+    const detectionIds = Array.isArray(log.detection_ids) ? log.detection_ids : [];
+    const grabId = log.grab_id;
+    if (detectionIds.length === 0 && !grabId) return;
+    if (!window.confirm('Delete this entry log? This removes every detection in the session and the grab itself.')) return;
+    try {
+      const detResults = await Promise.all(detectionIds.map(id => suspendDetection(id)));
+      const grabRes = grabId ? await suspendGrab(grabId) : null;
+
+      const failedDet = detResults.find(r => !r.ok);
+      if (failedDet) {
+        alert(failedDet.data?.response_message || 'Failed to delete one or more detections.');
+        return;
+      }
+      if (grabRes && !grabRes.ok) {
+        alert(grabRes.data?.response_message || 'Failed to delete the grab.');
+        return;
+      }
+      setSessionLogs(prev => prev.filter(l => l !== log));
+      setTotalRecords(prev => Math.max(0, prev - 1));
+    } catch (err) {
+      alert(`Connection error: ${err.message}`);
+    }
+  };
+
   const formatTime = (value) => {
     if (!value) return '—';
     if (typeof value === 'string') {
@@ -81,6 +106,7 @@ export const EntryLog = () => {
         description="Chronological record of every detection session across all camera zones."
         badge={`${totalRecords} total`}
       />
+
 
       {/* Filter Bar */}
       <div className="filter-bar" style={{ marginBottom: '14px' }}>
@@ -173,6 +199,14 @@ export const EntryLog = () => {
                         style={{ fontSize: '11px', padding: '4px 8px' }}
                       >
                         Details
+                      </button>
+                      <button
+                        className="btn btn-sm btn-danger"
+                        onClick={() => handleDeleteLog(log)}
+                        style={{ fontSize: '11px', padding: '4px 8px' }}
+                        title="Delete entry log"
+                      >
+                        🗑
                       </button>
                     </div>
                   </div>

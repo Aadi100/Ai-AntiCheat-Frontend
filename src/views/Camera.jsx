@@ -17,12 +17,11 @@ export const Camera = () => {
   const [error, setError] = useState(null);
   const [statusMsg, setStatusMsg] = useState('');
   const [selectedCameraId, setSelectedCameraId] = useState(null);
-  const [activeMode, setActiveMode] = useState(null); // 'stream' | 'roi' | 'edit' | null
+  const [activeMode, setActiveMode] = useState(null); // 'stream' | 'edit' | null
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
 
-  // Streaming & ROI editing states
+  // Streaming state
   const [isStreaming, setIsStreaming] = useState(false);
-  const [isEditingRoi, setIsEditingRoi] = useState(false);
 
   // Add Camera states
   const addType = 'ip'; // Hardcoded IP only
@@ -34,7 +33,7 @@ export const Camera = () => {
   const [branches, setBranches] = useState([]);
   const [addConnected, setAddConnected] = useState(false);
   const [addConnecting, setAddConnecting] = useState(false);
-  const [addConnectStatus, setAddConnectStatus] = useState('Connect first to draw a capture area (optional).');
+  const [addConnectStatus, setAddConnectStatus] = useState('Connect first (optional).');
   const [saving, setSaving] = useState(false);
 
   // Edit Camera states
@@ -43,20 +42,7 @@ export const Camera = () => {
   const [editLocation, setEditLocation] = useState('');
   const [editAction, setEditAction] = useState('');
 
-  // Drag ROI states (active cameras) - normalized (0.0 to 1.0)
-  const [dragActiveId, setDragActiveId] = useState(null);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 }); // in pixels
-  const [dragCurrent, setDragCurrent] = useState({ x: 0, y: 0 }); // in pixels
-  const [isDragging, setIsDragging] = useState(false);
-  const [roiBox, setRoiBox] = useState(null); // normalized coordinates
   const overlayRef = useRef(null);
-
-  // Drag ROI states (add camera) - normalized (0.0 to 1.0)
-  const [addRoiBox, setAddRoiBox] = useState(null);
-  const [addIsDragging, setAddIsDragging] = useState(false);
-  const [addDragStart, setAddDragStart] = useState({ x: 0, y: 0 }); // in pixels
-  const [addDragCurrent, setAddDragCurrent] = useState({ x: 0, y: 0 }); // in pixels
-  const addOverlayRef = useRef(null);
 
   // Real-time ticking stream clock
   const [feedTime, setFeedTime] = useState('');
@@ -119,20 +105,18 @@ export const Camera = () => {
     return () => clearInterval(interval);
   }, []);
 
-  // Sync edit form states & ROI box when selected camera changes
+  // Sync edit form states when selected camera changes
   useEffect(() => {
     if (selectedCamera) {
       setEditName(selectedCamera.name || '');
       setEditSource(selectedCamera.source || '');
       setEditLocation(selectedCamera.location || '');
       setEditAction(selectedCamera.action || '');
-      setRoiBox(selectedCamera.roi || null);
     } else {
       setEditName('');
       setEditSource('');
       setEditLocation('');
       setEditAction('');
-      setRoiBox(null);
     }
   }, [selectedCameraId, cameras]);
 
@@ -148,7 +132,6 @@ export const Camera = () => {
       setIsStreaming(false);
       setSelectedCameraId(null);
       setActiveMode(null);
-      setIsEditingRoi(false);
       return;
     }
 
@@ -156,13 +139,8 @@ export const Camera = () => {
     setActiveMode(mode);
 
     if (mode === 'stream') {
-      setIsEditingRoi(false);
-      setIsStreaming(true);
-    } else if (mode === 'roi') {
-      setIsEditingRoi(true);
       setIsStreaming(true);
     } else if (mode === 'edit') {
-      setIsEditingRoi(false);
       setIsStreaming(false);
     }
   };
@@ -241,7 +219,7 @@ export const Camera = () => {
     setTimeout(() => {
       setAddConnecting(false);
       setAddConnected(true);
-      setAddConnectStatus('✓ Connected successfully. Define capture area (optional).');
+      setAddConnectStatus('✓ Connected successfully.');
       setConsoleLogs(prev => [...prev, `[Camera] Temp connected webcam preview stream for "${addName}"`]);
     }, 1500);
   };
@@ -274,19 +252,14 @@ export const Camera = () => {
         const createdCam = createRes.data.response_data || {};
         const newCamId = createdCam.id || createdCam._id;
 
-        if (addRoiBox) {
-          await apiSvc.setCameraRoi(newCamId, addRoiBox);
-        }
-
         setConsoleLogs(prev => [...prev, `[Camera] Saved new camera "${addName}".`]);
-        
+
         setAddName('');
         setIpUrl('');
         setAddLocation('');
         setAddAction('');
         setAddConnected(false);
-        setAddRoiBox(null);
-        
+
         alert(`Camera "${addName}" added successfully.`);
         setSelectedCameraId(newCamId);
         setActiveMode('stream');
@@ -308,126 +281,7 @@ export const Camera = () => {
     setAddLocation('');
     setAddAction('');
     setAddConnected(false);
-    setAddRoiBox(null);
-    setAddConnectStatus('Connect first to draw a capture area (optional).');
-  };
-
-  // Drag handles (Existing Cameras preview)
-  const handleMouseDown = (e, camId) => {
-    if (!isEditingRoi) return;
-    if (!overlayRef.current) return;
-    const rect = overlayRef.current.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
-    
-    setDragActiveId(camId);
-    setDragStart({ x: startX, y: startY });
-    setDragCurrent({ x: startX, y: startY });
-    setIsDragging(true);
-  };
-
-  const handleMouseMove = (e) => {
-    if (!isDragging || !overlayRef.current) return;
-    const rect = overlayRef.current.getBoundingClientRect();
-    const currentX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const currentY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-    
-    setDragCurrent({ x: currentX, y: currentY });
-  };
-
-  const handleMouseUp = () => {
-    if (!isDragging || !overlayRef.current) return;
-    setIsDragging(false);
-
-    const rect = overlayRef.current.getBoundingClientRect();
-    const x = Math.min(dragStart.x, dragCurrent.x) / rect.width;
-    const y = Math.min(dragStart.y, dragCurrent.y) / rect.height;
-    const w = Math.abs(dragStart.x - dragCurrent.x) / rect.width;
-    const h = Math.abs(dragStart.y - dragCurrent.y) / rect.height;
-
-    if (w > 0.02 && h > 0.02) {
-      setRoiBox({ x, y, w, h });
-    }
-  };
-
-  const handleSaveRoi = async (camId) => {
-    if (!roiBox) return;
-    try {
-      const res = await apiSvc.setCameraRoi(camId, roiBox);
-      if (res.ok) {
-        setConsoleLogs(prev => [...prev, `[Camera] Capture ROI area coordinates saved for camera ${camId}.`]);
-        setStatusMsg('✓ Capture Area bounds saved successfully!');
-        setIsEditingRoi(false);
-        setActiveMode('stream');
-        loadCameras();
-        setTimeout(() => setStatusMsg(''), 4000);
-      } else {
-        alert(`Failed to save ROI: ${res.data?.response_message}`);
-      }
-    } catch (err) {
-      alert(`Connection error: ${err.message}`);
-    }
-  };
-
-  const handleCancelEditingRoi = () => {
-    setRoiBox(selectedCamera.roi || null);
-    setIsEditingRoi(false);
-    setActiveMode('stream');
-  };
-
-  const handleClearRoi = async (camId) => {
-    try {
-      const res = await apiSvc.setCameraRoi(camId, null);
-      if (res.ok) {
-        setConsoleLogs(prev => [...prev, `[Camera] Capture ROI area cleared for camera ${camId}.`]);
-        setStatusMsg('✓ Capture Area bounds cleared successfully!');
-        setRoiBox(null);
-        setIsEditingRoi(false);
-        setActiveMode('stream');
-        loadCameras();
-        setTimeout(() => setStatusMsg(''), 4000);
-      } else {
-        alert(`Failed to clear ROI: ${res.data?.response_message}`);
-      }
-    } catch (err) {
-      alert(`Connection error: ${err.message}`);
-    }
-  };
-
-  // Drag handles (Add Camera preview)
-  const handleAddMouseDown = (e) => {
-    if (!addOverlayRef.current) return;
-    const rect = addOverlayRef.current.getBoundingClientRect();
-    const startX = e.clientX - rect.left;
-    const startY = e.clientY - rect.top;
-
-    setAddDragStart({ x: startX, y: startY });
-    setAddDragCurrent({ x: startX, y: startY });
-    setAddIsDragging(true);
-  };
-
-  const handleAddMouseMove = (e) => {
-    if (!addIsDragging || !addOverlayRef.current) return;
-    const rect = addOverlayRef.current.getBoundingClientRect();
-    const currentX = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
-    const currentY = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
-
-    setAddDragCurrent({ x: currentX, y: currentY });
-  };
-
-  const handleAddMouseUp = () => {
-    if (!addIsDragging || !addOverlayRef.current) return;
-    setAddIsDragging(false);
-
-    const rect = addOverlayRef.current.getBoundingClientRect();
-    const x = Math.min(addDragStart.x, addDragCurrent.x) / rect.width;
-    const y = Math.min(addDragStart.y, addDragCurrent.y) / rect.height;
-    const w = Math.abs(addDragStart.x - addDragCurrent.x) / rect.width;
-    const h = Math.abs(addDragStart.y - addDragCurrent.y) / rect.height;
-
-    if (w > 0.02 && h > 0.02) {
-      setAddRoiBox({ x, y, w, h });
-    }
+    setAddConnectStatus('Connect first (optional).');
   };
 
   const inputStyle = {
@@ -456,7 +310,7 @@ export const Camera = () => {
     <div>
       <PageHeader
         title="Camera Operations"
-        description="Manage remote IP video sources and configure localized region-of-interest triggers."
+        description="Manage remote IP video sources across your branches."
         badge={`${cameras.length} configured`}
       >
         <button
@@ -479,8 +333,8 @@ export const Camera = () => {
         </div>
       )}
 
-      {/* Main Accordion Directory */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', maxWidth: '800px', margin: '0 auto' }}>
+      {/* Camera Grid */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(380px, 1fr))', gap: '18px', alignItems: 'start' }}>
         {cameras.length > 0 ? (
           cameras.map((c) => {
             const isExpanded = selectedCameraId === c._id;
@@ -488,27 +342,36 @@ export const Camera = () => {
               <div
                 key={c._id}
                 style={{
+                  gridColumn: isExpanded ? '1 / -1' : undefined,
                   background: 'var(--bg2)',
-                  border: '1px solid var(--border)',
+                  border: `1px solid ${isExpanded ? 'var(--accent)' : 'var(--border)'}`,
                   borderRadius: '16px',
                   padding: '20px',
-                  boxShadow: 'var(--shadow-sm)',
+                  boxShadow: isExpanded ? '0 0 0 1px var(--accent), var(--shadow-sm)' : 'var(--shadow-sm)',
                   transition: 'all 0.2s ease-in-out'
                 }}
               >
                 {/* Card Header Info */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px', marginBottom: '14px' }}>
-                  <div>
-                    <h3 style={{ fontWeight: '800', fontSize: '15px', color: 'var(--fg-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <div style={{ minWidth: 0 }}>
+                    <h3 style={{ fontWeight: '800', fontSize: '15px', color: 'var(--fg-strong)', margin: 0, display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                       {c.name}
                       {c.camera_code && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{c.camera_code}</span>}
                     </h3>
-                    <div style={{ fontSize: '11px', color: 'var(--fg2)', wordBreak: 'break-all', fontFamily: 'monospace', marginTop: '4px' }}>
-                      🔗 {c.source}
+                    <div
+                      title={c.source}
+                      style={{
+                        display: 'inline-flex', alignItems: 'center', gap: '6px', maxWidth: '100%',
+                        fontSize: '11px', color: 'var(--fg2)', fontFamily: 'monospace', marginTop: '8px',
+                        background: 'var(--bg3)', border: '1px solid var(--border-soft)', borderRadius: '6px',
+                        padding: '4px 8px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+                      }}
+                    >
+                      🔗 <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{c.source}</span>
                     </div>
                   </div>
-                  
-                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>
+
+                  <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
                     <span className={`badge badge-sm ${c.status === 'active' ? 'badge-ok' : 'badge-danger'}`} style={{ fontSize: '9px', textTransform: 'uppercase' }}>
                       {c.status === 'active' ? 'Online' : 'Offline'}
                     </span>
@@ -520,11 +383,6 @@ export const Camera = () => {
                     {c.action && (
                       <span className="badge badge-sm badge-warn" style={{ fontSize: '9px' }}>
                         ⚡ {c.action}
-                      </span>
-                    )}
-                    {c.roi && (
-                      <span className="badge badge-sm badge-ok" style={{ fontSize: '9px' }}>
-                        🎯 ROI Set
                       </span>
                     )}
                   </div>
@@ -541,14 +399,6 @@ export const Camera = () => {
                       {isExpanded && activeMode === 'stream' ? '⏹ Stop Stream' : '▶ Stream'}
                     </button>
                     
-                    <button
-                      className={`btn btn-sm ${isExpanded && activeMode === 'roi' ? 'btn-ok' : ''}`}
-                      style={{ padding: '6px 12px', fontSize: '11.5px', fontWeight: 'bold', background: isExpanded && activeMode === 'roi' ? 'var(--ok)' : 'var(--bg3)', border: '1px solid var(--border)', color: isExpanded && activeMode === 'roi' ? '#fff' : 'var(--fg)' }}
-                      onClick={() => handleActionClick(c._id, 'roi')}
-                    >
-                      {isExpanded && activeMode === 'roi' ? '🎯 Editing ROI' : '🎯 Set ROI'}
-                    </button>
-
                     <button
                       className="btn btn-sm"
                       style={{ padding: '6px 12px', fontSize: '11.5px', fontWeight: 'bold', background: isExpanded && activeMode === 'edit' ? 'var(--accent)' : 'var(--bg3)', border: '1px solid var(--border)', color: isExpanded && activeMode === 'edit' ? '#fff' : 'var(--fg)' }}
@@ -571,15 +421,15 @@ export const Camera = () => {
                 {isExpanded && (
                   <div style={{ marginTop: '20px', borderTop: '1px solid var(--border-soft)', paddingTop: '20px', animation: 'fade-in 0.2s ease-out' }}>
                     
-                    {/* Mode: Stream or ROI */}
-                    {(activeMode === 'stream' || activeMode === 'roi') && (
+                    {/* Mode: Stream */}
+                    {activeMode === 'stream' && (
                       <div>
                         {/* Stream preview box */}
-                        <div className="roi-stage" ref={overlayRef} style={{ background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid var(--border-soft)' }}>
+                        <div className="roi-stage" ref={overlayRef} style={{ background: '#000', borderRadius: '12px', overflow: 'hidden', position: 'relative', border: '1px solid var(--border-soft)', aspectRatio: '16 / 9' }}>
                           <img
                             className="video-frame"
                             src={c.source}
-                            style={{ width: '100%', display: 'block', opacity: 0.8 }}
+                            style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', opacity: 0.85 }}
                             alt="Live Camera Feed"
                             onError={(e) => {
                               e.target.onerror = null;
@@ -607,74 +457,7 @@ export const Camera = () => {
                             </div>
                           </div>
 
-                          {/* Drag-to-ROI selector overlays */}
-                          {activeMode === 'roi' && (
-                            <div
-                              style={{ position: 'absolute', inset: 0, cursor: 'crosshair', zIndex: 10 }}
-                              onMouseDown={(e) => handleMouseDown(e, c._id)}
-                              onMouseMove={handleMouseMove}
-                              onMouseUp={handleMouseUp}
-                            ></div>
-                          )}
-
-                          {/* Dragging Bounding Box */}
-                          {isDragging && dragActiveId === c._id && (
-                            <div style={{
-                              position: 'absolute',
-                              border: '2px dashed var(--accent)',
-                              background: 'rgba(139,92,246,0.1)',
-                              left: Math.min(dragStart.x, dragCurrent.x),
-                              top: Math.min(dragStart.y, dragCurrent.y),
-                              width: Math.abs(dragStart.x - dragCurrent.x),
-                              height: Math.abs(dragStart.y - dragCurrent.y),
-                              pointerEvents: 'none',
-                              zIndex: 15
-                            }}></div>
-                          )}
-
-                          {/* Saved ROI Area using responsive percentages */}
-                          {roiBox && !isDragging && (
-                            <div style={{
-                              position: 'absolute',
-                              border: activeMode === 'roi' ? '2px dashed var(--accent)' : '2px solid var(--accent)',
-                              background: 'rgba(139,92,246,0.15)',
-                              left: `${roiBox.x * 100}%`,
-                              top: `${roiBox.y * 100}%`,
-                              width: `${roiBox.w * 100}%`,
-                              height: `${roiBox.h * 100}%`,
-                              pointerEvents: 'none',
-                              zIndex: 14
-                            }}>
-                              <span style={{ position: 'absolute', top: '-18px', left: '0', background: 'var(--accent)', color: '#fff', fontSize: '9px', padding: '1px 5px', borderRadius: '3px 3px 0 0', fontWeight: 'bold' }}>
-                                {activeMode === 'roi' ? 'EDITING ROI CAPTURE AREA' : 'ROI CAPTURE AREA'}
-                              </span>
-                            </div>
-                          )}
                         </div>
-
-                        {/* ROI control helper bar */}
-                        {activeMode === 'roi' && (
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px', flexWrap: 'wrap', gap: '8px' }}>
-                            <span className="text-muted" style={{ fontSize: '11px' }}>
-                              Drag on the stream monitor above to select the capture area bounds.
-                            </span>
-                            <div style={{ display: 'flex', gap: '8px' }}>
-                              <button
-                                className="btn btn-sm btn-ok"
-                                disabled={!roiBox}
-                                onClick={() => handleSaveRoi(c._id)}
-                              >
-                                Save Area
-                              </button>
-                              <button className="btn btn-sm" onClick={handleCancelEditingRoi}>
-                                Cancel
-                              </button>
-                              <button className="btn btn-sm" onClick={() => handleClearRoi(c._id)}>
-                                Clear Area
-                              </button>
-                            </div>
-                          </div>
-                        )}
                       </div>
                     )}
 
@@ -744,7 +527,7 @@ export const Camera = () => {
             );
           })
         ) : (
-          <div className="panel" style={{ padding: '40px', textAlign: 'center' }}>
+          <div className="panel" style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center' }}>
             <div className="empty-state">
               <div className="empty-icon"><Icon name="help-circle" size={28} /></div>
               <h3>No IP Cameras Registered</h3>
@@ -821,61 +604,6 @@ export const Camera = () => {
                   {addConnecting ? 'Testing Connection...' : '⚡ Test Connection'}
                 </button>
               </div>
-
-              {/* Drag Preview Stream for Add Camera */}
-              {addConnected && (
-                <div style={{ marginBottom: '18px' }}>
-                  <div className="roi-stage" ref={addOverlayRef} style={{ background: '#000', borderRadius: '8px', overflow: 'hidden', position: 'relative' }}>
-                    <img
-                      className="video-frame"
-                      src="https://images.unsplash.com/photo-1593079831268-3381b0db4a77?w=640&auto=format&fit=crop&q=80"
-                      style={{ width: '100%', display: 'block', opacity: 0.8 }}
-                      alt="Connection Stream Preview"
-                    />
-                    <div
-                      style={{ position: 'absolute', left: 0, top: 0, width: '100%', height: '100%', cursor: 'crosshair', zIndex: 10 }}
-                      onMouseDown={handleAddMouseDown}
-                      onMouseMove={handleAddMouseMove}
-                      onMouseUp={handleAddMouseUp}
-                    ></div>
-
-                    {/* Rendering Add Camera Drag bounds */}
-                    {addIsDragging && (
-                      <div style={{
-                        position: 'absolute',
-                        border: '2px dashed var(--accent)',
-                        background: 'rgba(139,92,246,0.1)',
-                        left: Math.min(addDragStart.x, addDragCurrent.x),
-                        top: Math.min(addDragStart.y, addDragCurrent.y),
-                        width: Math.abs(addDragStart.x - addDragCurrent.x),
-                        height: Math.abs(addDragStart.y - addDragCurrent.y),
-                        pointerEvents: 'none',
-                        zIndex: 15
-                      }}></div>
-                    )}
-
-                    {/* Rendering Add Camera Saved ROI Area */}
-                    {addRoiBox && !addIsDragging && (
-                      <div style={{
-                        position: 'absolute',
-                        border: '2px solid var(--accent)',
-                        background: 'rgba(139,92,246,0.15)',
-                        left: `${addRoiBox.x * 100}%`,
-                        top: `${addRoiBox.y * 100}%`,
-                        width: `${addRoiBox.w * 100}%`,
-                        height: `${addRoiBox.h * 100}%`,
-                        pointerEvents: 'none',
-                        zIndex: 14
-                      }}></div>
-                    )}
-                  </div>
-
-                  <div style={{ marginTop: '6px', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span className="text-muted" style={{ fontSize: '11px' }}>Drag on frame to define ROI bounds (optional).</span>
-                    <button type="button" className="btn btn-sm" style={{ padding: '3px 8px' }} onClick={() => setAddRoiBox(null)}>Clear Area</button>
-                  </div>
-                </div>
-              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
                 <div className="form-group" style={{ marginBottom: 0 }}>

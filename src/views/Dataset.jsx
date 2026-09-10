@@ -24,7 +24,7 @@ const groupImagesByName = (paths) => {
    Merged Dataset Page  (Known Persons  ·  Unknown Captures)
 ───────────────────────────────────────────────────────────── */
 export const Dataset = () => {
-  const { setConsoleLogs, defaultBranchId, selectedOrgId } = useApp();
+  const { setConsoleLogs, defaultBranchId, selectedOrgId, openLightbox } = useApp();
   const [searchParams, setSearchParams] = useSearchParams();
   const mainTab = searchParams.get('tab') || 'known'; // 'known' | 'unknown'
   const setMainTab = (t) => setSearchParams({ tab: t });
@@ -51,7 +51,7 @@ export const Dataset = () => {
     try {
       const [imgRes, countRes] = await Promise.all([
         api.fetchDatasetImages(defaultBranchId),
-        api.fetchDuplicatesPendingCount(defaultBranchId, folder),
+        folder ? api.fetchDuplicatesPendingCount(folder) : Promise.resolve(null),
       ]);
       if (imgRes.ok) {
         const raw = imgRes.data?.response_data;
@@ -60,7 +60,7 @@ export const Dataset = () => {
       } else {
         setKnownError(imgRes.data?.response_message || 'Failed to load images.');
       }
-      if (countRes.ok) setDupCount(countRes.data?.response_data?.count ?? 0);
+      if (countRes?.ok) setDupCount(countRes.data?.response_data?.count ?? 0);
     } catch (e) {
       setKnownError(`Network error: ${e.message}`);
     } finally {
@@ -104,17 +104,32 @@ export const Dataset = () => {
   }, [selectedCollection, defaultBranchId]);
 
   const loadDuplicates = useCallback(async () => {
+    if (!folder) {
+      setDuplicates([]);
+      setKnownError('Enter a folder above to load its pending duplicate reviews.');
+      return;
+    }
     setKnownLoading(true);
     setKnownError('');
     try {
-      const res = await api.fetchDuplicatesPending(defaultBranchId, folder);
+      const res = await api.fetchDuplicatesPending(folder);
       if (res.ok) setDuplicates(res.data?.response_data?.reviews || res.data?.response_data || []);
       else { setDuplicates([]); setKnownError(res.data?.response_message || 'Failed to load duplicate reviews.'); }
     } catch (e) {
       setDuplicates([]);
       setKnownError(`Network error: ${e.message}`);
     } finally { setKnownLoading(false); }
-  }, [folder, defaultBranchId]);
+  }, [folder]);
+
+  // Auto-fill the folder from the branch's own Settings (camera_dataset_dir)
+  // so the user doesn't have to know/type the raw dataset folder path.
+  useEffect(() => {
+    if (!defaultBranchId || folder) return;
+    api.fetchSettings(defaultBranchId).then(res => {
+      const dir = res.ok ? res.data?.response_data?.camera_dataset_dir : '';
+      if (dir) setFolder(dir);
+    }).catch(() => {});
+  }, [defaultBranchId, folder]);
 
   useEffect(() => {
     if (mainTab !== 'known') return;
@@ -462,8 +477,8 @@ export const Dataset = () => {
               ))}
             </div>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <input className="form-input" style={{ width: '190px', padding: '7px 12px', fontSize: '12px' }} placeholder="Folder (optional)" value={folder} onChange={e => setFolder(e.target.value)} />
-              <button className="btn btn-sm" onClick={loadKnownImages} disabled={knownLoading}>Refresh</button>
+              <input className="form-input" style={{ width: '190px', padding: '7px 12px', fontSize: '12px' }} placeholder={knownSubTab === 'duplicates' ? 'Folder (required)' : 'Folder (optional)'} value={folder} onChange={e => setFolder(e.target.value)} />
+              <button className="btn btn-sm" onClick={knownSubTab === 'duplicates' ? loadDuplicates : loadKnownImages} disabled={knownLoading}>Refresh</button>
             </div>
           </div>
 
@@ -471,14 +486,8 @@ export const Dataset = () => {
           {knownSubTab === 'images' && (
             <div style={{ marginBottom: '20px' }}>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
-                <button className="btn btn-sm btn-primary" disabled={actionLoading || !defaultBranchId} title={!defaultBranchId ? 'Select a branch first' : undefined} onClick={() => doKnownAction('Local train', () => api.trainDataset(defaultBranchId))}>
-                  ⚡ Train Local
-                </button>
                 <button className="btn btn-sm" disabled={actionLoading || !defaultBranchId} title={!defaultBranchId ? 'Select a branch first' : undefined} style={{ background: 'var(--bg3)', border: '1px solid var(--border)' }} onClick={() => doKnownAction('Sync & Train', () => api.syncTrainDataset(defaultBranchId))}>
-                  ☁ Sync & Train
-                </button>
-                <button className="btn btn-sm btn-danger" disabled={actionLoading} onClick={() => { if (window.confirm('Delete ALL local dataset images? This cannot be undone.')) doKnownAction('Delete all local', () => api.deleteDatasetAll(defaultBranchId)); }}>
-                  🗑 Delete All Local
+                  ☁ Sync
                 </button>
               </div>
               {!defaultBranchId && (
@@ -576,31 +585,48 @@ export const Dataset = () => {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                     {duplicates.map((review, i) => {
                       const reviewId = review.id || review._id;
+                      const resolve = async (action) => {
+                        const res = await api.resolveDuplicateReview(reviewId, action);
+                        if (res.ok) setDuplicates(prev => prev.filter((_, j) => j !== i));
+                        else alert(res.data?.response_message || 'Failed to resolve duplicate review.');
+                      };
                       return (
                         <div key={reviewId || i} className="panel" style={{ padding: '18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '14px' }}>
-                          <div>
-                            <div style={{ fontWeight: '700', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                              {review.name}
-                              {review.duplicate_review_code && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{review.duplicate_review_code}</span>}
-                              {review.person_type && <span className="badge badge-blue" style={{ fontSize: '9px', textTransform: 'capitalize' }}>{review.person_type}</span>}
-                            </div>
-                            <div style={{ fontSize: '11.5px', color: 'var(--fg2)', marginTop: '4px' }}>
-                              New enrollment <span className="mono">{review.enrollment_id}</span> matches existing <span className="mono">{review.existing_enrollment_id}</span>
-                            </div>
-                            {review.folder && (
-                              <div style={{ fontSize: '10.5px', color: 'var(--fg3)', marginTop: '2px' }}>Folder: {review.folder}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                            {review.picture_url ? (
+                              <SecureImage
+                                src={review.picture_url}
+                                style={{ width: '52px', height: '52px', objectFit: 'cover', borderRadius: '8px', border: '1px solid var(--border)', cursor: 'pointer', flexShrink: 0 }}
+                                alt={review.name}
+                                onClick={() => openLightbox([review.picture_url], 0)}
+                              />
+                            ) : (
+                              <div style={{ width: '52px', height: '52px', borderRadius: '8px', background: 'var(--bg3)', border: '1px solid var(--border-soft)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--fg3)', flexShrink: 0 }}>
+                                <Icon name="user" size={22} />
+                              </div>
                             )}
+                            <div>
+                              <div style={{ fontWeight: '700', fontSize: '13.5px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                {review.name}
+                                {review.duplicate_review_code && <span className="badge badge-muted" style={{ fontSize: '9px' }}>{review.duplicate_review_code}</span>}
+                                {review.person_type && <span className="badge badge-blue" style={{ fontSize: '9px', textTransform: 'capitalize' }}>{review.person_type}</span>}
+                              </div>
+                              <div style={{ fontSize: '11.5px', color: 'var(--fg2)', marginTop: '4px' }}>
+                                New enrollment <span className="mono">{review.enrollment_id}</span> matches existing <span className="mono">{review.existing_enrollment_id}</span>
+                              </div>
+                              {review.folder && (
+                                <div style={{ fontSize: '10.5px', color: 'var(--fg3)', marginTop: '2px' }}>Folder: {review.folder}</div>
+                              )}
+                            </div>
                           </div>
-                          <button
-                            className="btn btn-sm"
-                            onClick={async () => {
-                              const res = await api.resolveDuplicateReview(reviewId, 'ignored');
-                              if (res.ok) setDuplicates(prev => prev.filter((_, j) => j !== i));
-                              else alert(res.data?.response_message || 'Failed to resolve duplicate review.');
-                            }}
-                          >
-                            Ignore
-                          </button>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn-sm btn-primary" onClick={() => resolve('save')}>
+                              Save as New Person
+                            </button>
+                            <button className="btn btn-sm" onClick={() => resolve('skip')}>
+                              Skip
+                            </button>
+                          </div>
                         </div>
                       );
                     })}

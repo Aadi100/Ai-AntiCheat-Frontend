@@ -139,12 +139,13 @@ export const AppProvider = ({ children }) => {
   const closeSessionModal = () => setSessionModal({ open: false, data: null });
 
   // ─── Global Mock States (Restored for all features) ───────────────────────
-  const [cameras, setCameras] = useState(mock.mockCameras);
+  const [cameras, setCameras] = useState([]);
+  const [alertsCount, setAlertsCount] = useState(0);
   const [enrolledPersons, setEnrolledPersons] = useState(mock.mockPersons);
   const [unknownPersons, setUnknownPersons] = useState(mock.mockUnknowns);
   const [duplicatePairs, setDuplicatePairs] = useState(mock.mockDuplicateReviews);
   const [entryLogs, setEntryLogs] = useState(mock.mockEntryLogs);
-  const [alerts, setAlerts] = useState(mock.mockViolations);
+  const [alerts, setAlerts] = useState([]);
   const [invoices, setInvoices] = useState(mock.mockInvoices);
   const [consoleLogs, setConsoleLogs] = useState(mock.mockConsoleLogs);
   const [detections, setDetections] = useState(mock.mockDetections);
@@ -157,6 +158,22 @@ export const AppProvider = ({ children }) => {
     match_threshold: 68.0,
     match_margin: 12.0
   });
+
+  // Sidebar "Alerts" badge — real count for the current branch, refreshed
+  // on branch switch and periodically so it doesn't drift while the app sits open.
+  useEffect(() => {
+    if (!defaultBranchId) { setAlertsCount(0); return; }
+    let active = true;
+    const loadAlertsCount = async () => {
+      try {
+        const res = await apiSvc.fetchAlerts(defaultBranchId, 1, 1);
+        if (active && res.ok) setAlertsCount(res.data?.response_data?.total ?? 0);
+      } catch (_) { /* keep last known count */ }
+    };
+    loadAlertsCount();
+    const interval = setInterval(loadAlertsCount, 60000);
+    return () => { active = false; clearInterval(interval); };
+  }, [defaultBranchId]);
 
   // ─── Toasts State ─────────────────────────────────────────────────────────
   const [toasts, setToasts] = useState([]);
@@ -387,6 +404,7 @@ export const AppProvider = ({ children }) => {
         setEntryLogs,
         alerts,
         setAlerts,
+        alertsCount,
         billingSummary,
         setBillingSummary,
         invoices,

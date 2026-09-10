@@ -1,23 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
 import { SecureImage } from '../components/SecureImage';
-import { fetchPerson, updatePerson, suspendPerson, fetchDetectionsPaginated, fetchAlerts } from '../utils/api';
+import { fetchPerson, fetchDetectionsPaginated, fetchAlerts } from '../utils/api';
 
 export const PersonDetail = () => {
   const { id } = useParams();
-  const navigate = useNavigate();
   const { openLightbox, defaultBranchId } = useApp();
 
   const [person, setPerson] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  const [editMode, setEditMode] = useState(false);
-  const [name, setName] = useState('');
-  const [role, setRole] = useState('member');
-  const [expiry, setExpiry] = useState('');
 
   const [accompaniedUnknowns, setAccompaniedUnknowns] = useState([]);
 
@@ -34,13 +28,6 @@ export const PersonDetail = () => {
 
         if (personData) {
           setPerson(personData);
-          setName(personData.name || '');
-          setRole(personData.role || 'member');
-          if (personData.package_expiry) {
-            setExpiry(personData.package_expiry.substring(0, 10));
-          } else {
-            setExpiry('');
-          }
 
           // Fetch Accountability (Alerts)
           const alertsRes = await fetchAlerts(defaultBranchId, 1, 100);
@@ -67,42 +54,6 @@ export const PersonDetail = () => {
   useEffect(() => {
     loadPerson();
   }, [id, defaultBranchId]);
-
-  const handleSave = async (e) => {
-    e.preventDefault();
-    try {
-      const payload = {
-        id,
-        name,
-        role,
-        package_expiry: expiry ? `${expiry}T00:00:00+00:00` : null
-      };
-      const res = await updatePerson(payload);
-      if (res.ok) {
-        setEditMode(false);
-        await loadPerson();
-      } else {
-        alert(res.data?.response_message || 'Failed to update person profile.');
-      }
-    } catch (err) {
-      alert(`Network error: ${err.message}`);
-    }
-  };
-
-  const handleDeletePerson = async () => {
-    if (window.confirm(`Delete ${person.name} and ALL their training data?`)) {
-      try {
-        const res = await suspendPerson(id);
-        if (res.ok) {
-          navigate('/persons');
-        } else {
-          alert(res.data?.response_message || 'Failed to suspend person.');
-        }
-      } catch (err) {
-        alert(`Network error: ${err.message}`);
-      }
-    }
-  };
 
   const formatTime = (epoch) => {
     if (!epoch) return 'Never';
@@ -164,60 +115,32 @@ export const PersonDetail = () => {
             </div>
           </div>
 
-          {editMode ? (
-            <form onSubmit={handleSave}>
-              <div className="form-group">
-                <label className="form-label">Full Name</label>
-                <input type="text" className="form-input" value={name} onChange={e => setName(e.target.value)} required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Role</label>
-                <select className="form-input" value={role} onChange={e => setRole(e.target.value)}>
-                  <option value="member">Member</option>
-                  <option value="staff">Staff</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Package Expiry Date</label>
-                <input type="date" className="form-input mono" value={expiry} onChange={e => setExpiry(e.target.value)} />
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                <button type="button" className="btn btn-sm" onClick={() => setEditMode(false)}>Cancel</button>
-                <button type="submit" className="btn btn-sm btn-primary">Save Profile</button>
-              </div>
-            </form>
-          ) : (
-            <div className="row-list">
-              <div className="row-item">
-                <span>Verification Role</span>
-                <span className="badge badge-blue" style={{ textTransform: 'capitalize' }}>{person.role}</span>
-              </div>
-              <div className="row-item">
-                <span>Package Expiry</span>
-                <span className="mono">
-                  {person.package_expiry ? person.package_expiry.substring(0, 10) : 'No active limit'}
-                </span>
-              </div>
-              <div className="row-item">
-                <span>Account Status</span>
-                <span className={`badge ${person.status === 'active' ? 'badge-ok' : 'badge-err'}`}>
-                  {person.status}
-                </span>
-              </div>
-              <div className="row-item">
-                <span>Total Matches Today</span>
-                <span className="mono font-bold">{person.total_appearances || 0} times</span>
-              </div>
-              <div className="row-item">
-                <span>Last Entrance Sighting</span>
-                <span className="mono" style={{ fontSize: '11.5px' }}>{formatTime(person.last_seen)}</span>
-              </div>
-              <div style={{ display: 'flex', gap: '8px', marginTop: '20px' }}>
-                <button className="btn btn-sm btn-primary" onClick={() => setEditMode(true)}>Edit Profile</button>
-                <button className="btn btn-sm btn-danger" onClick={handleDeletePerson}>Delete Dataset Profile</button>
-              </div>
+          <div className="row-list">
+            <div className="row-item">
+              <span>Verification Role</span>
+              <span className="badge badge-blue" style={{ textTransform: 'capitalize' }}>{person.role}</span>
             </div>
-          )}
+            <div className="row-item">
+              <span>Package Expiry</span>
+              <span className="mono">
+                {person.package_expiry ? person.package_expiry.substring(0, 10) : 'No active limit'}
+              </span>
+            </div>
+            <div className="row-item">
+              <span>Account Status</span>
+              <span className={`badge ${person.status === 'active' ? 'badge-ok' : 'badge-err'}`}>
+                {person.status}
+              </span>
+            </div>
+            <div className="row-item">
+              <span>Total Matches Today</span>
+              <span className="mono font-bold">{person.total_appearances || 0} times</span>
+            </div>
+            <div className="row-item">
+              <span>Last Entrance Sighting</span>
+              <span className="mono" style={{ fontSize: '11.5px' }}>{formatTime(person.last_seen)}</span>
+            </div>
+          </div>
         </div>
 
         {/* Right pane: enrolled profile photo details */}

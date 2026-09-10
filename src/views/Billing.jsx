@@ -249,7 +249,7 @@ export const Billing = () => {
   const handleDownloadReceipt = () => {
     if (!paymentResult?.success) return;
     const lines = [
-      'AI AntiCheat Surveillance — Payment Receipt',
+      'AntiCheat Surveillance — Payment Receipt',
       '============================================',
       `Transaction ID: ${paymentResult.txnId}`,
       `Billing Period: ${paymentResult.month}`,
@@ -464,7 +464,7 @@ export const Billing = () => {
                   {paymentMethod === 'bank' && (
                     <div className="bank-panel">
                       <div className="bank-detail-row"><span className="lbl">Bank Name</span><span className="val">First Enterprise Bank</span></div>
-                      <div className="bank-detail-row"><span className="lbl">Account Name</span><span className="val">AI AntiCheat Surveillance LLC</span></div>
+                      <div className="bank-detail-row"><span className="lbl">Account Name</span><span className="val">AntiCheat Surveillance LLC</span></div>
                       <div className="bank-detail-row"><span className="lbl">Account Number</span><span className="val">0021 4487 9932</span></div>
                       <div className="bank-detail-row"><span className="lbl">Routing / SWIFT</span><span className="val">FEBKUS44XXX</span></div>
                       <div className="bank-detail-row"><span className="lbl">Reference Code</span><span className="val">INV-{monthId}</span></div>

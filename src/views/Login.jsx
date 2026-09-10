@@ -64,7 +64,7 @@ export const Login = () => {
           <div className="wordmark">Fitness Marvel</div>
         </div>
 
-        <div className="eyebrow"><span className="dot"></span>AI-Powered Anti-Cheat Security</div>
+        <div className="eyebrow"><span className="dot"></span>Anti-Cheat Security</div>
 
         <div className="login-card-wrap">
           <form className="login-card" onSubmit={handleSubmit}>

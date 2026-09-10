@@ -3,7 +3,7 @@ import { useApp } from '../context/AppContext';
 import { Icon } from '../components/Icon';
 import { PageHeader } from '../components/PageHeader';
 import { SecureImage } from '../components/SecureImage';
-import { fetchAlerts } from '../utils/api';
+import { fetchAlerts, suspendAlert } from '../utils/api';
 import { alertMeta } from '../utils/alertTypes';
 
 export const Alerts = () => {
@@ -52,6 +52,23 @@ export const Alerts = () => {
   useEffect(() => {
     loadAlerts();
   }, [page, defaultBranchId]);
+
+  const handleDeleteAlert = async (e, id) => {
+    e.stopPropagation();
+    if (!id) return;
+    if (!window.confirm('Delete this alert?')) return;
+    try {
+      const res = await suspendAlert(id);
+      if (res.ok) {
+        setAlertList(prev => prev.filter(a => (a.id || a._id) !== id));
+        setTotalRecords(prev => Math.max(0, prev - 1));
+      } else {
+        alert(res.data?.response_message || 'Failed to delete alert.');
+      }
+    } catch (err) {
+      alert(`Connection error: ${err.message}`);
+    }
+  };
 
   const filteredAlerts = filterType === 'all'
     ? alertList
@@ -137,9 +154,19 @@ export const Alerts = () => {
                         <span className={`badge ${meta.badgeClass}`}>{meta.label}</span>
                         {a.alert_code && <span className="badge badge-muted" style={{ marginLeft: '4px' }}>{a.alert_code}</span>}
                       </div>
-                      <span className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
-                        {a.triggered_at}
-                      </span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span className="mono text-muted" style={{ fontSize: '11px', whiteSpace: 'nowrap' }}>
+                          {a.triggered_at}
+                        </span>
+                        <button
+                          className="btn btn-sm btn-danger"
+                          style={{ padding: '2px 8px', fontSize: '11px' }}
+                          onClick={(e) => handleDeleteAlert(e, a.id || a._id)}
+                          title="Delete alert"
+                        >
+                          🗑
+                        </button>
+                      </div>
                     </div>
 
                     <div className="alert-card-img">

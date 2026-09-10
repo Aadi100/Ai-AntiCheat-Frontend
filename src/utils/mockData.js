@@ -406,7 +406,7 @@ export const mockDuplicateReviews = [
 ];
 
 export const mockConsoleLogs = [
-  "[Startup] Initializing AI AntiCheat pipeline...",
+  "[Startup] Initializing AntiCheat pipeline...",
   "[Startup] MongoEngine successfully connected to mongodb://localhost:27017/anticheat",
   "[Prewarm] ArcFace + SSD ready",
   "[Prewarm] Facenet512 ready",
